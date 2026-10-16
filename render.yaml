@@ -1,39 +1,38 @@
-# Render Blueprint: website + background worker. Database = Supabase (set DATABASE_URL).
-# Render dashboard → New → Blueprint → pick this repo. Fill the env vars marked sync:false when asked.
-envVarGroups:
-  - name: rsi-shared
-    envVars:
-      - key: DATABASE_URL
-        sync: false            # Supabase → Connect → Session pooler URI
-      - key: DATABASE_SSL
-        value: no-verify
-      - key: SECRETS_ENCRYPTION_KEY
-        generateValue: true    # random 256-bit base64 key, shared by web + worker. Copy it somewhere safe.
-      - key: CRON_SECRET
-        generateValue: true
-      - key: DEMO_SHOW_CREDENTIALS
-        value: "false"
-      - key: NODE_VERSION
-        value: "22"
+# Render Blueprint — FREE plan: one web service that also runs the background worker.
+# Database = Supabase (DATABASE_URL). Render dashboard → New → Blueprint → pick this repo.
+# Free web services sleep after ~15 min without traffic: keep it awake with an uptime pinger
+# (e.g. cron-job.org or UptimeRobot) hitting https://<your-app>/api/health every 10 minutes.
+# To move to paid later: set plan: starter, add a separate `type: worker` service running `npm run worker`,
+# and set RUN_WORKER_IN_WEB to "false".
 services:
   - type: web
     name: rsi-web
     runtime: node
     region: singapore
-    plan: starter
+    plan: free
     buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
     startCommand: npx next start -p $PORT
-    healthCheckPath: /login
+    healthCheckPath: /api/health
     envVars:
-      - fromGroup: rsi-shared
+      - key: DATABASE_URL
+        sync: false            # Supabase → Connect → Session pooler URI
       - key: APP_URL
-        sync: false            # e.g. https://support.rosierfoods.com (or the onrender.com URL)
-  - type: worker
-    name: rsi-worker
-    runtime: node
-    region: singapore
-    plan: starter
-    buildCommand: npm ci --include=dev
-    startCommand: npm run worker
-    envVars:
-      - fromGroup: rsi-shared
+        sync: false            # e.g. https://rsi-web.onrender.com
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false            # first Super Admin login, e.g. business@rosierfoods.com
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false            # min 10 chars; only used while the database has no users — delete it after first sign-in
+      - key: DATABASE_SSL
+        value: no-verify
+      - key: SECRETS_ENCRYPTION_KEY
+        generateValue: true    # random 256-bit key. Copy it somewhere safe.
+      - key: CRON_SECRET
+        generateValue: true
+      - key: RUN_WORKER_IN_WEB
+        value: "true"
+      - key: WORKER_CONCURRENCY
+        value: "2"
+      - key: DEMO_SHOW_CREDENTIALS
+        value: "false"
+      - key: NODE_VERSION
+        value: "22"
