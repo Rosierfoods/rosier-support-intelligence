@@ -1,0 +1,15 @@
+{
+  "id": 4521,
+  "account_id": 12,
+  "inbox_id": 3,
+  "status": "resolved",
+  "created_at": 1760000000,
+  "timestamp": 1760003600,
+  "last_activity_at": 1760003600,
+  "meta": {
+    "sender": { "id": 991, "name": "Priya Sharma", "email": "priya@example.com", "phone_number": "+919812345678" },
+    "assignee": { "id": 77, "name": "Rahul Verma", "available_name": "Rahul", "email": "rahul@rosierfoods.com" },
+    "channel": "Channel::Whatsapp"
+  },
+  "labels": []
+}

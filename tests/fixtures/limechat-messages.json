@@ -1,0 +1,12 @@
+{
+  "meta": { "labels": [] },
+  "payload": [
+    { "id": 1001, "content": "Hi, my order hasn't arrived", "message_type": 0, "created_at": 1760000000, "private": false, "sender_type": "Contact", "sender": { "id": 991, "name": "Priya Sharma" } },
+    { "id": 1002, "content": "Thanks for reaching Rosier! An agent will reply shortly.", "message_type": 3, "created_at": 1760000005, "private": false, "sender_type": null },
+    { "id": 1003, "content": "Conversation was assigned to Rahul", "message_type": 2, "created_at": 1760000010, "private": false },
+    { "id": 1004, "content": "Sorry about that, Priya. Let me check the tracking.", "message_type": 1, "created_at": 1760000300, "private": false, "sender_type": "User", "sender": { "id": 77, "name": "Rahul Verma", "available_name": "Rahul" } },
+    { "id": 1005, "content": "internal: courier delay at hub", "message_type": 1, "created_at": 1760000320, "private": true, "sender_type": "User", "sender": { "id": 77, "name": "Rahul Verma" } },
+    { "id": 1006, "content": "", "message_type": 0, "created_at": 1760000400, "private": false, "sender_type": "Contact", "sender": { "id": 991 },
+      "attachments": [{ "id": 5, "file_type": "image", "extension": "jpg", "data_url": "https://app.limechat.ai/rails/active_storage/blobs/x/photo.jpg", "file_size": 20480 }] }
+  ]
+}

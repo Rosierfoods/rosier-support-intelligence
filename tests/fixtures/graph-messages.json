@@ -1,0 +1,76 @@
+{
+ "value": [
+  {
+   "id": "AAA1",
+   "conversationId": "CONV1",
+   "subject": "Damaged mustard oil bottle",
+   "from": {
+    "emailAddress": {
+     "name": "Neha",
+     "address": "neha@example.com"
+    }
+   },
+   "toRecipients": [
+    {
+     "emailAddress": {
+      "address": "care@rosierfoods.com"
+     }
+    }
+   ],
+   "ccRecipients": [],
+   "receivedDateTime": "2025-10-01T05:00:00Z",
+   "sentDateTime": "2025-10-01T04:59:58Z",
+   "body": {
+    "contentType": "text",
+    "content": "The bottle was broken on arrival."
+   },
+   "hasAttachments": false,
+   "isDraft": false
+  },
+  {
+   "id": "AAA2",
+   "conversationId": "CONV1",
+   "subject": "RE: Damaged mustard oil bottle",
+   "from": {
+    "emailAddress": {
+     "name": "Rosier Care",
+     "address": "care@rosierfoods.com"
+    }
+   },
+   "toRecipients": [
+    {
+     "emailAddress": {
+      "address": "neha@example.com"
+     }
+    }
+   ],
+   "ccRecipients": [],
+   "receivedDateTime": "2025-10-01T06:30:00Z",
+   "sentDateTime": "2025-10-01T06:30:00Z",
+   "body": {
+    "contentType": "html",
+    "content": "<div>So sorry, Neha! A replacement is on its way.</div>"
+   },
+   "hasAttachments": false,
+   "isDraft": false
+  },
+  {
+   "id": "AAA3",
+   "conversationId": "CONV2",
+   "subject": "Draft",
+   "from": {
+    "emailAddress": {
+     "address": "care@rosierfoods.com"
+    }
+   },
+   "toRecipients": [],
+   "receivedDateTime": "2025-10-01T07:00:00Z",
+   "body": {
+    "contentType": "text",
+    "content": "x"
+   },
+   "isDraft": true
+  }
+ ],
+ "@odata.nextLink": null
+}

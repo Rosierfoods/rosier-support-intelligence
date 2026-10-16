@@ -1,0 +1,91 @@
+{
+ "id": "18c1a",
+ "historyId": "999",
+ "messages": [
+  {
+   "id": "m1",
+   "threadId": "18c1a",
+   "internalDate": "1760000000000",
+   "labelIds": [
+    "INBOX"
+   ],
+   "snippet": "Refund status",
+   "payload": {
+    "mimeType": "multipart/mixed",
+    "headers": [
+     {
+      "name": "From",
+      "value": "Amit Gupta <amit@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "support@rosierfoods.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Refund not received for order RF1001"
+     },
+     {
+      "name": "Date",
+      "value": "Thu, 9 Oct 2025 10:00:00 +0530"
+     }
+    ],
+    "parts": [
+     {
+      "mimeType": "multipart/alternative",
+      "parts": [
+       {
+        "mimeType": "text/plain",
+        "body": {
+         "data": "SGVsbG8sIEkgcmV0dXJuZWQgdGhlIGhvbmV5IDEwIGRheXMgYWdvIGFuZCBzdGlsbCBubyByZWZ1bmQuCg"
+        }
+       },
+       {
+        "mimeType": "text/html",
+        "body": {
+         "data": "PHA-SGVsbG88L3A-"
+        }
+       }
+      ]
+     },
+     {
+      "mimeType": "application/pdf",
+      "filename": "invoice.pdf",
+      "body": {
+       "attachmentId": "ATT1",
+       "size": 5120
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "m2",
+   "threadId": "18c1a",
+   "internalDate": "1760007200000",
+   "labelIds": [
+    "SENT"
+   ],
+   "payload": {
+    "mimeType": "text/plain",
+    "headers": [
+     {
+      "name": "From",
+      "value": "Rosier Support <support@rosierfoods.com>"
+     },
+     {
+      "name": "To",
+      "value": "amit@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Re: Refund not received for order RF1001"
+     }
+    ],
+    "body": {
+     "data": "SGkgQW1pdCwgdGhlIHJlZnVuZCB3YXMgaW5pdGlhdGVkIHRvZGF5LgoKT24gVGh1LCA5IE9jdCAyMDI1IGF0IDEwOjAwLCBBbWl0IEd1cHRhIDxhbWl0QGV4YW1wbGUuY29tPiB3cm90ZToKPiBIZWxsbywgSSByZXR1cm5lZCB0aGUgaG9uZXkK"
+    }
+   }
+  }
+ ]
+}

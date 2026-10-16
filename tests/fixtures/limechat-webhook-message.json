@@ -1,0 +1,15 @@
+{
+  "event": "message_created",
+  "id": 1007,
+  "content": "Is there any update?",
+  "created_at": "2025-10-09T10:05:00.000Z",
+  "message_type": "incoming",
+  "content_type": "text",
+  "content_attributes": {},
+  "source_id": null,
+  "sender": { "id": 991, "name": "Priya Sharma", "email": "priya@example.com", "type": "contact" },
+  "contact": { "id": 991, "name": "Priya Sharma" },
+  "conversation": { "display_id": 4521, "additional_attributes": {}, "status": "open", "channel": "Channel::Whatsapp",
+    "meta": { "sender": { "id": 991, "name": "Priya Sharma", "phone_number": "+919812345678" }, "assignee": { "id": 77, "name": "Rahul Verma", "email": "rahul@rosierfoods.com" } } },
+  "account": { "id": 12, "name": "Rosier Foods" }
+}

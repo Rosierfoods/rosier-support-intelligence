@@ -1,0 +1,10 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [{ "id": "102290129340398", "changes": [{ "field": "messages", "value": {
+    "messaging_product": "whatsapp",
+    "metadata": { "display_phone_number": "15550783881", "phone_number_id": "106540352242922" },
+    "contacts": [{ "profile": { "name": "Sheena Nelson" }, "wa_id": "919876543210" }],
+    "messages": [{ "from": "919876543210", "id": "wamid.IMG1", "timestamp": "1749416500", "type": "image",
+      "image": { "caption": "Photo of the jar", "mime_type": "image/jpeg", "sha256": "abc", "id": "1003383421387256" } }]
+  } }] }]
+}

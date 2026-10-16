@@ -1,0 +1,17 @@
+{
+  "event": "call.completed",
+  "event_id": "evt_01J8ZK",
+  "occurred_at": "2025-08-21T11:02:44Z",
+  "call_id": "c_7781",
+  "direction": "inbound",
+  "from": "+919812300000",
+  "to": "+911204567890",
+  "status": "missed",
+  "reason": "no_answer",
+  "agent": null,
+  "started_at": "2025-08-21T11:01:30Z",
+  "connected_at": null,
+  "ended_at": "2025-08-21T11:02:44Z",
+  "duration_seconds": 0,
+  "recording_url": null
+}

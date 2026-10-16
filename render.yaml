@@ -1,0 +1,39 @@
+# Render Blueprint: website + background worker. Database = Supabase (set DATABASE_URL).
+# Render dashboard → New → Blueprint → pick this repo. Fill the env vars marked sync:false when asked.
+envVarGroups:
+  - name: rsi-shared
+    envVars:
+      - key: DATABASE_URL
+        sync: false            # Supabase → Connect → Session pooler URI
+      - key: DATABASE_SSL
+        value: no-verify
+      - key: SECRETS_ENCRYPTION_KEY
+        generateValue: true    # random 256-bit base64 key, shared by web + worker. Copy it somewhere safe.
+      - key: CRON_SECRET
+        generateValue: true
+      - key: DEMO_SHOW_CREDENTIALS
+        value: "false"
+      - key: NODE_VERSION
+        value: "22"
+services:
+  - type: web
+    name: rsi-web
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
+    startCommand: npx next start -p $PORT
+    healthCheckPath: /login
+    envVars:
+      - fromGroup: rsi-shared
+      - key: APP_URL
+        sync: false            # e.g. https://support.rosierfoods.com (or the onrender.com URL)
+  - type: worker
+    name: rsi-worker
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci --include=dev
+    startCommand: npm run worker
+    envVars:
+      - fromGroup: rsi-shared

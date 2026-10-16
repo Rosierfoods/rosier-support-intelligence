@@ -1,0 +1,15 @@
+{
+  "event": "call.end",
+  "session_id": "sess_9001",
+  "customer_identifier": "+919811111111",
+  "timestamp": "2025-09-01T06:00:00Z",
+  "data": {
+    "id": "call_9001",
+    "status": "ANSWER",
+    "duration": 245,
+    "billable": true,
+    "recording_filename": "rec_9001.wav",
+    "legs": [{ "dial_status": "ANSWER", "ring_duration": 7, "talk_duration": 238,
+      "agent": { "uuid": "ag-1", "name": "Vikas", "email": "vikas@rosierfoods.com", "contact": "9000000000", "extension": "12" } }]
+  }
+}
