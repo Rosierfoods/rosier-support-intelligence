@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-poppins: 'Poppins';
+  --brand: #784900;
+  --brand-2: #a56312;
+  --sand: #e7e0ce;
+  --canvas: #fbf9f5;
+  --ink: #2a2219;
+  --line: #e8e2d6;
+}
+
+html, body { background: var(--canvas); color: var(--ink); }
+body { font-family: var(--font-poppins), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+@layer components {
+  .card { @apply rounded-xl border border-line bg-white shadow-card; }
+  .input { @apply h-9 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink placeholder:text-ink-faint focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-canvas; }
+  .label { @apply mb-1 block text-xs font-medium text-ink-muted; }
+  .th { @apply whitespace-nowrap px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted; }
+  .td { @apply px-3 py-2.5 align-top text-sm; }
+  .link { @apply text-brand hover:text-brand-500 hover:underline; }
+  .prose-kb h2 { @apply mb-2 mt-4 text-base font-semibold; }
+  .prose-kb ul { @apply ml-5 list-disc space-y-1; }
+  .prose-kb ol { @apply ml-5 list-decimal space-y-1; }
+  .prose-kb p { @apply mb-2; }
+  .prose-kb blockquote { @apply mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900; }
+}
+
+mark.hl { background: #fde9b8; color: inherit; padding: 0 1px; border-radius: 2px; }
+.recharts-text { font-family: var(--font-poppins), system-ui, sans-serif; }
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #ddd3c2; border-radius: 3px; }
