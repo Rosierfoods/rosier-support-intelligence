@@ -13,6 +13,7 @@ import { m365Provider } from './m365';
 import { sarvamProvider } from './sarvam';
 import { anthropicProvider } from './anthropic';
 import { geminiProvider } from './gemini';
+import { shopifyProvider } from './shopify';
 
 export const PROVIDERS: ProviderDefinition[] = [
   limechatProvider,
@@ -23,6 +24,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   sarvamProvider,
   anthropicProvider,
   geminiProvider,
+  shopifyProvider,
 ];
 
 const BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
@@ -42,4 +44,5 @@ export const PROVIDER_GROUPS: { key: ProviderDefinition['category']; label: stri
   { key: 'email', label: 'Email', description: 'Support mailboxes' },
   { key: 'speech_to_text', label: 'Speech-to-text', description: 'Transcribes call recordings' },
   { key: 'ai', label: 'AI analysis', description: 'Summaries, classification and quality scoring' },
+  { key: 'other', label: 'Store & orders', description: 'Customer names and order matching' },
 ];

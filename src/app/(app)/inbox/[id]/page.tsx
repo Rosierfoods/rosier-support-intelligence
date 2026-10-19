@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, ExternalLink, RefreshCw } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/session';
 import { withOrg } from '@/lib/db';
 import { sp, type SP } from '@/lib/filters';
@@ -17,8 +17,10 @@ import { ActionForm, SubmitButton } from '@/components/interaction/ActionForm';
 import { AiInsightsCard, FlagsCard, LabelsCard, QualityCard, ReviewCard } from '@/components/interaction/DetailPanels';
 import type { FlagMarker } from '@/components/interaction/types';
 import {
-  addLabelAction, addNoteAction, correctEvaluationAction, removeLabelAction, retryProcessingAction, rootCauseAction, updateStatusAction,
+  addLabelAction, addNoteAction, correctEvaluationAction, recheckOrderAction, removeLabelAction, retryProcessingAction, rootCauseAction, setOrderAction, updateStatusAction,
 } from './actions';
+import { DirectionBadge } from '@/components/interaction/InteractionListView';
+import { RESOLUTION_TYPE_LABELS, type ResolutionType } from '@/lib/orders/tickets';
 import { flagAction } from '../../quality/actions';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }) {
@@ -119,7 +121,9 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
         <div className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight text-ink">{i.ref}</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-ink">{i.order_ref ? <>Order {i.order_ref}{i.order_verified && <BadgeCheck size={18} className="ml-1 inline text-emerald-600" aria-label="Verified in Shopify" />}</> : i.ref}</h1>
+              {i.order_ref && <span className="text-xs text-ink-muted">{i.ref}</span>}
+              <DirectionBadge direction={i.direction} channel={channel} />
               {i.is_demo && <DemoBadge />}
               <ChannelBadge channel={channel} platform={i.source_platform} />
               <Badge tone="muted">{PLATFORM_LABELS[i.source_platform] ?? i.source_platform}</Badge>
@@ -133,7 +137,7 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
               ['Agent', i.agent_id ? <Link href={`/agents/${i.agent_id}`} className="link">{i.agent_name}</Link> : 'Unassigned'],
               ['Team', i.team_name ?? '—'],
               ['Customer', <span key="c">{i.customer.name ?? 'Unknown'}{(i.customer.phone || i.customer.email) && <span className="block text-2xs text-ink-muted">{[i.customer.phone, i.customer.email].filter(Boolean).join(' · ')}</span>}</span>],
-              ['Direction', titleCase(i.direction)],
+              ['Order', i.order_ref ? `${i.order_ref}${i.order_verified ? ' ✓ verified' : i.order_source === 'ai' ? ' (from conversation, unverified)' : i.order_source === 'manual' ? ' (entered manually)' : ''}` : 'Not found yet'],
               ['Ticket', i.ticket_ref ? `${i.ticket_ref}${i.ticket_status ? ` (${i.ticket_status})` : ''}` : '—'],
               ['Source record ID', <span key="sr" className="break-all font-mono text-xs">{i.source_record_id}</span>],
               ['First response', fmtDuration(i.first_response_seconds)],
@@ -164,6 +168,50 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(380px,440px)]">
         {/* ── Main column: original source content ── */}
         <div className="min-w-0 space-y-4">
+          <Card>
+            <CardHeader title="Ticket & order" subtitle="Created automatically from the conversation" />
+            <CardBody className="space-y-3">
+              <KeyValue className="sm:grid-cols-2 lg:grid-cols-4" items={[
+                ['Problem', i.ticket_problem ?? (i.ticket_category ?? '—')],
+                ['What the agent did', i.ticket_action ?? '—'],
+                ['Action type', i.ticket_resolution_type ? RESOLUTION_TYPE_LABELS[i.ticket_resolution_type as ResolutionType] ?? titleCase(i.ticket_resolution_type) : '—'],
+                ['Ticket', i.ticket_ref ? `${i.ticket_ref} · ${titleCase(i.ticket_status ?? 'open')}${i.ticket_priority ? ` · ${titleCase(i.ticket_priority)} priority` : ''}` : 'Created after AI analysis'],
+              ]} />
+              {i.order_details ? (
+                <div className="rounded-lg border border-line bg-canvas p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-ink">Shopify order {i.order_details.name}</span>
+                    {i.order_details.matched_by === 'phone' && <Badge tone="info">Matched by customer phone</Badge>}
+                    {i.order_details.financial_status && <Badge tone="neutral">{titleCase(String(i.order_details.financial_status))}</Badge>}
+                    {i.order_details.fulfillment_status && <Badge tone="neutral">{titleCase(String(i.order_details.fulfillment_status))}</Badge>}
+                    {i.order_details.admin_url && <a href={String(i.order_details.admin_url)} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-1 text-xs">Open in Shopify <ExternalLink size={11} /></a>}
+                  </div>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {i.order_details.created_at ? fmtDateTime(String(i.order_details.created_at)) : ''}
+                    {i.order_details.total ? ` · ${i.order_details.currency ?? '₹'} ${i.order_details.total}` : ''}
+                    {i.order_details.customer_name ? ` · ${i.order_details.customer_name}` : ''}
+                  </p>
+                  {Array.isArray(i.order_details.items) && i.order_details.items.length > 0 && (
+                    <p className="mt-1 text-xs text-ink">{(i.order_details.items as { title: string; quantity: number }[]).map((it) => `${it.quantity}× ${it.title}`).join(' · ')}</p>
+                  )}
+                </div>
+              ) : null}
+              {canEditReview && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <ActionForm action={setOrderAction} hidden={{ interactionId: i.id }} className="flex flex-wrap items-end gap-2">
+                    <label className="text-xs text-ink-muted">Order ID
+                      <input name="orderRef" defaultValue={i.order_ref ?? ''} placeholder="#1234" maxLength={40} className="input mt-1 h-8 w-36 py-0 text-sm" />
+                    </label>
+                    <SubmitButton variant="secondary" size="sm" pendingLabel="Saving…">Save order</SubmitButton>
+                  </ActionForm>
+                  <ActionForm action={recheckOrderAction} hidden={{ interactionId: i.id }}>
+                    <SubmitButton variant="ghost" size="sm" pendingLabel="Queuing…"><RefreshCw size={12} /> Re-check with Shopify</SubmitButton>
+                  </ActionForm>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
           {channel === 'call' && d.call && (
             <Card>
               <CardHeader title="Call details" subtitle="Provider metadata (source)" />

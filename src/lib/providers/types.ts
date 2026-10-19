@@ -56,7 +56,7 @@ export interface NormalizedInteraction {
   endedAt?: Date | null;
   subject?: string | null;
   customer?: { name?: string | null; phone?: string | null; email?: string | null; externalId?: string | null };
-  agent?: { externalId?: string | null; name?: string | null; email?: string | null };
+  agent?: { externalId?: string | null; name?: string | null; email?: string | null; phone?: string | null };
   status?: string | null;              // provider conversation status (open/closed/...)
   resolutionStatus?: 'open' | 'pending' | 'resolved' | 'unresolved' | 'escalated';
   ticket?: { externalId: string; subject?: string | null; status?: string | null; orderRef?: string | null } | null;

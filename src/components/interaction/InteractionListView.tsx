@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { Download } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, BadgeCheck, Download, RefreshCw } from 'lucide-react';
+import { ActionForm, SubmitButton } from '@/components/interaction/ActionForm';
+import { retryAllFailedAction } from '@/app/(app)/inbox/[id]/actions';
 import type { Session } from '@/lib/auth/session';
 import { withOrg } from '@/lib/db';
 import { parsePage, withParams, type SP } from '@/lib/filters';
@@ -43,9 +45,14 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
         actions={<>
           <RangeFilter />
           {canExport && (
-            <a href={`/api/export/interactions${exportQs}`} className={buttonClass('secondary', 'md')} title="Download the filtered list as CSV (max 10,000 rows)">
-              <Download size={14} /> Export CSV
+            <a href={`/api/export/interactions${exportQs}`} className={buttonClass('secondary', 'md')} title="Download the filtered list as an Excel sheet (max 10,000 rows)">
+              <Download size={14} /> Download Excel
             </a>
+          )}
+          {s.permissions.has('processing.retry') && (
+            <ActionForm action={retryAllFailedAction} hidden={variant === 'call' ? { channel: 'call' } : undefined}>
+              <SubmitButton variant="secondary" size="md" pendingLabel="Queuing…"><RefreshCw size={14} /> Retry all failed</SubmitButton>
+            </ActionForm>
           )}
         </>} />
 
@@ -55,6 +62,7 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
             ? 'Search ID, agent, customer phone/email, subject, transcript or message text…'
             : 'Search ID, agent, subject, transcript or message text…'} />
           {channelOpts.length > 1 && <ParamSelect name="channel" placeholder="All channels" options={channelOpts} />}
+          <ParamSelect name="direction" placeholder="Incoming & outgoing" options={[{ value: 'inbound', label: 'Incoming' }, { value: 'outbound', label: 'Outgoing' }]} />
           {showCall && <ParamSelect name="call_status" placeholder="Any call status" options={Object.entries(CALL_STATUS_LABELS).map(([value, label]) => ({ value, label }))} />}
           <ParamSelect name="agent" placeholder="All agents" options={opts.agents.map((a) => ({ value: a.id, label: a.name }))} />
           {s.scope === 'all' && <ParamSelect name="team" placeholder="All teams" options={opts.teams.map((t) => ({ value: t.id, label: t.name }))} />}
@@ -85,7 +93,8 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
           <Table>
             <THead>
               <tr>
-                <th className="th">ID</th>
+                <th className="th">Order / ID</th>
+                <th className="th">Type</th>
                 <th className="th"><SortLink searchParams={searchParams} basePath={basePath} field="occurred_at" label="Date / channel" /></th>
                 <th className="th">Customer</th>
                 <th className="th">Agent</th>
@@ -117,14 +126,32 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
   );
 }
 
+export function DirectionBadge({ direction, channel }: { direction: 'inbound' | 'outbound'; channel: string }) {
+  const out = direction === 'outbound';
+  const label = channel === 'call' ? (out ? 'Outgoing' : 'Incoming') : out ? 'Sent' : 'Received';
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset ${out ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-red-50 text-red-800 ring-red-200'}`}>
+      {out ? <ArrowUpRight size={12} aria-hidden /> : <ArrowDownLeft size={12} aria-hidden />}{label}
+    </span>
+  );
+}
+
 function Row({ r, showCall, variant }: { r: InteractionRow; showCall: boolean; variant: ListVariant }) {
   const href = `/inbox/${r.id}`;
   return (
     <tr className="hover:bg-brand-50/40">
       <td className="td whitespace-nowrap">
-        <Link href={href} className="font-medium text-ink hover:text-brand">{r.ref}</Link>
+        {r.order_ref ? (
+          <>
+            <Link href={href} className="inline-flex items-center gap-1 font-medium text-ink hover:text-brand" title={r.order_verified ? 'Order verified in Shopify' : r.order_source === 'ai' ? 'Order ID mentioned in the conversation (not yet verified)' : 'Order'}>
+              {r.order_ref}{r.order_verified && <BadgeCheck size={13} className="text-emerald-600" aria-label="Verified in Shopify" />}
+            </Link>
+            <p className="text-2xs text-ink-faint">{r.ref}</p>
+          </>
+        ) : <Link href={href} className="font-medium text-ink hover:text-brand">{r.ref}</Link>}
         {r.is_demo && <div className="mt-0.5"><DemoBadge className="px-1 text-[10px]" /></div>}
       </td>
+      <td className="td whitespace-nowrap"><DirectionBadge direction={r.direction} channel={r.channel} /></td>
       <td className="td whitespace-nowrap">
         <p className="text-xs text-ink-muted">{fmtDateTime(r.occurred_at)}</p>
         <div className="mt-0.5"><ChannelBadge channel={r.channel} platform={r.source_platform} /></div>

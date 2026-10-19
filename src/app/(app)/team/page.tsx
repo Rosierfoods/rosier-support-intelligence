@@ -9,7 +9,7 @@ import { ActionForm } from '@/components/analytics/ActionForm';
 import { SubmitButton } from '@/components/analytics/SubmitButton';
 import { Tabs } from '@/components/analytics/Segmented';
 import { fmtDateTime, relTime } from '@/lib/format';
-import { createUser, resetUserMfa, resetUserPassword, saveAgent, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
+import { createUser, resetUserMfa, resetUserPassword, saveAgent, rematchAgents, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
 
 export const metadata = { title: 'Team Management' };
 
@@ -177,12 +177,14 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
       {tab === 'agents' && (
         <div className="space-y-4">
           <Notice tone="info">
+            <strong>Mobile numbers</strong> link calls to agents: add each agent&apos;s own mobile number(s) — the number their MyOperator calls ring on.
+            New calls are assigned automatically; use <em>Re-match calls</em> after adding numbers.{' '}
             External IDs map provider users to agent profiles during import, e.g. <code className="rounded bg-white px-1">{'{"myoperator":"10234","limechat":"ag_55","email":"neha@rosierfoods.com"}'}</code>.
             Each provider ID can belong to one agent only. Known providers: {Object.keys(PLATFORM_LABELS).filter((k) => !['manual', 'demo'].includes(k)).join(', ')}.
           </Notice>
           <Card>
             <Table>
-              <THead><tr><th className="th">Agent</th><th className="th">Team</th><th className="th">Linked user</th><th className="th">External IDs</th><th className="th">Interactions</th><th className="th"><span className="sr-only">Edit</span></th></tr></THead>
+              <THead><tr><th className="th">Agent</th><th className="th">Team</th><th className="th">Linked user</th><th className="th">Mobile numbers</th><th className="th">External IDs</th><th className="th">Interactions</th><th className="th"><span className="sr-only">Edit</span></th></tr></THead>
               <TBody>
                 {d.agents.map((a: any) => (
                   <tr key={a.id} className={a.is_active ? '' : 'bg-canvas/60 text-ink-muted'}>
@@ -190,6 +192,7 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
                       <div className="mt-1 flex gap-1">{!a.is_active && <Badge tone="muted">Inactive</Badge>}{a.is_demo && <DemoBadge />}</div></td>
                     <td className="td text-sm">{a.team ?? <span className="text-ink-faint">—</span>}</td>
                     <td className="td text-xs">{a.user_email ?? <span className="text-ink-faint">Not linked</span>}</td>
+                    <td className="td text-xs tabular-nums">{(a.phone_numbers ?? []).length ? (a.phone_numbers as string[]).map((p) => <p key={p}>+{p}</p>) : <span className="text-ink-faint">Not set</span>}</td>
                     <td className="td"><div className="flex max-w-xs flex-wrap gap-1">{Object.entries(a.external_ids ?? {}).map(([k, v]) => <Badge key={k} tone="neutral">{k}: {String(v)}</Badge>)}{!Object.keys(a.external_ids ?? {}).length && <span className="text-2xs text-ink-faint">None</span>}</div></td>
                     <td className="td tabular-nums">{a.interactions}</td>
                     <td className="td text-right">
@@ -205,6 +208,9 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
               </TBody>
             </Table>
           </Card>
+          <ActionForm action={rematchAgents} className="flex items-center gap-3">
+            <SubmitButton variant="secondary">Re-match calls to agents by mobile number</SubmitButton>
+          </ActionForm>
           <Card>
             <CardHeader title="Add agent profile" subtitle="Agents are the people whose conversations are imported and evaluated. Link a user so the agent can see their own performance." />
             <CardBody><AgentForm teamOpts={teamOpts} userOpts={userOpts} /></CardBody>
@@ -261,6 +267,7 @@ function AgentForm({ a, teamOpts, userOpts }: { a?: any; teamOpts: Opt[]; userOp
       <Field label="Email"><input name="email" type="email" defaultValue={a?.email ?? ''} maxLength={200} className="input" /></Field>
       <Field label="Team"><Select name="teamId" options={teamOpts} value={a?.team_id} placeholder="No team" /></Field>
       <Field label="Linked user"><Select name="userId" options={userOpts} value={a?.user_id} placeholder="Not linked" /></Field>
+      <Field label="Mobile number(s)" hint="Comma-separated, e.g. 98123 45678, +91 99999 11111"><input name="phones" defaultValue={a ? ((a.phone_numbers ?? []) as string[]).map((p) => '+' + p).join(', ') : ''} placeholder="+91 98123 45678" className="input" /></Field>
       <Field label="External IDs (JSON)"><input name="externalIds" defaultValue={a ? JSON.stringify(a.external_ids ?? {}) : ''} placeholder='{"myoperator":"10234"}' className="input font-mono text-xs" /></Field>
       <Field label="Status">
         <select name="active" defaultValue={a ? String(a.is_active) : 'true'} className="input"><option value="true">Active</option><option value="false">Inactive</option></select>

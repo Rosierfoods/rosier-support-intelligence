@@ -13,6 +13,8 @@ import { hostname } from 'node:os';
 import { withSystem, getPool } from '@/lib/db';
 import { claimJobs, requeueStale, type Job, type JobType } from '@/lib/pipeline/jobs';
 import { enqueueScheduledJobs, runClaimedJob } from '@/lib/pipeline/handlers';
+import { runOrderMatchingBatch } from '@/lib/orders/enrich';
+import { runTicketBackfillBatch } from '@/lib/orders/tickets';
 
 const args = new Map(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const CONCURRENCY = Math.max(1, Math.min(32, Number(process.env.WORKER_CONCURRENCY ?? 3)));
@@ -44,6 +46,10 @@ async function maintenance() {
       if (doRetention) lastRetentionCheck = now;
       if (r.syncs || r.sla || r.retention) log(`scheduled syncs=${r.syncs} sla=${r.sla} retention=${r.retention}`);
     } catch (e) { log(`scheduler error: ${(e as Error).message}`); }
+    try { const n = await runOrderMatchingBatch(log); if (n) log(`order matching: ${n} checked`); }
+    catch (e) { log(`order matching error: ${(e as Error).message}`); }
+    try { const n = await runTicketBackfillBatch(log); if (n) log(`tickets back-filled: ${n}`); }
+    catch (e) { log(`ticket backfill error: ${(e as Error).message}`); }
   }
 }
 

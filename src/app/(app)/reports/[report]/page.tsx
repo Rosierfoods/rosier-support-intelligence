@@ -70,7 +70,7 @@ export default async function ReportPage(props: { params: Promise<{ report: stri
         <div className="flex flex-wrap items-center gap-2">
           {s.permissions.has('reports.export') && (
             <a href={`/api/reports/${def.key}${qs}`} className={buttonClass('secondary', 'sm')} download>
-              <Download size={14} aria-hidden /> Download CSV
+              <Download size={14} aria-hidden /> Download Excel
             </a>
           )}
           <PrintButton />

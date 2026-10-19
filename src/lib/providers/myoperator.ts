@@ -79,7 +79,7 @@ function mapLegacy(d: any): NormalizedInteraction | null {
     occurredAt,
     endedAt,
     customer: { phone: caller, name: null, externalId: null },
-    agent: agent ? { externalId: str(agent._id), name: str(agent._na), email: str(agent._em) } : undefined,
+    agent: agent ? { externalId: str(agent._id), name: str(agent._na), email: str(agent._em), phone: str(agent._ct) } : undefined,
     call: {
       status: mapCallStatus(d._su, duration),
       durationSeconds: duration,
@@ -111,7 +111,7 @@ function mapCompleted(d: any): NormalizedInteraction | null {
     occurredAt,
     endedAt,
     customer: { phone: customerNumber, name: str(d.customer_name ?? d.caller_name) },
-    agent: agent ? { externalId: str(agent.id ?? agent.uuid), name: str(agent.name), email: str(agent.email) } : undefined,
+    agent: agent ? { externalId: str(agent.id ?? agent.uuid), name: str(agent.name), email: str(agent.email), phone: str(agent.contact ?? agent.phone ?? agent.number) } : undefined,
     call: {
       status: mapCallStatus(d.status, duration),
       durationSeconds: duration,
@@ -142,7 +142,7 @@ function mapV2(env: any): NormalizedInteraction | null {
     occurredAt,
     endedAt: toDate(d.ended_at ?? env.ended_at),
     customer: { phone: str(env.customer_identifier ?? d.customer_identifier) },
-    agent: agent ? { externalId: str(agent.uuid ?? agent.id), name: str(agent.name), email: str(agent.email) } : undefined,
+    agent: agent ? { externalId: str(agent.uuid ?? agent.id), name: str(agent.name), email: str(agent.email), phone: str(agent.contact) } : undefined,
     call: {
       status: mapCallStatus(d.status, duration),
       durationSeconds: duration,
@@ -152,6 +152,19 @@ function mapV2(env: any): NormalizedInteraction | null {
       recordingRef: httpUrl(d.recording_url) ?? (str(d.recording_filename) ? `myoperator-file:${str(d.recording_filename)}` : null),
     },
   };
+}
+
+/** First phone-like value on the call legs that is not the customer's number. */
+function firstLegNumber(legs: any[], customer: string | null): string | null {
+  const cust = (customer ?? '').replace(/\D/g, '').slice(-10);
+  for (const l of legs) {
+    for (const v of [l?.contact, l?._ct, l?.agent_number, l?.agent_contact, l?.number, l?.received_by_number, l?.dialed_number]) {
+      const s = str(v);
+      const digits = (s ?? '').replace(/\D/g, '');
+      if (digits.length >= 10 && digits.slice(-10) !== cust) return s;
+    }
+  }
+  return null;
 }
 
 /**
@@ -175,6 +188,8 @@ function mapSearchDoc(d: any): NormalizedInteraction | null {
   const leg = legs.find((l) => pickAgent(l) && (toSeconds(l?.duration ?? l?._dr) ?? 0) > 0) ?? legs.find((l) => pickAgent(l)) ?? null;
   const agent = leg ? pickAgent(leg) : null;
   const caller = str(d.caller_number) ?? str(d.caller_number_raw);
+  // No agent object: fall back to any agent-side number on the call legs (matched to agents by their mobile number).
+  const agentPhone = agent?.contact ?? firstLegNumber(legs, caller);
   return {
     sourcePlatform: 'myoperator',
     sourceRecordId: id,
@@ -183,14 +198,14 @@ function mapSearchDoc(d: any): NormalizedInteraction | null {
     occurredAt,
     endedAt,
     customer: { phone: caller, name: str(d.caller_name ?? d.name), externalId: str(d.allcaller_id) },
-    agent: agent ? { externalId: agent.id, name: agent.name, email: agent.email } : undefined,
+    agent: agent ? { externalId: agent.id, name: agent.name, email: agent.email, phone: agent.contact } : (agentPhone ? { phone: agentPhone } : undefined),
     status: str(d.department_name),
     call: {
       status: mapCallStatus(d.status, duration),
       durationSeconds: duration,
       ringSeconds: null,
-      fromNumber: direction === 'inbound' ? caller : agent?.contact ?? null,
-      toNumber: direction === 'inbound' ? agent?.contact ?? null : caller,
+      fromNumber: direction === 'inbound' ? caller : agentPhone ?? null,
+      toNumber: direction === 'inbound' ? agentPhone ?? null : caller,
       recordingRef: str(d.filename) ? `myoperator-file:${str(d.filename)}` : httpUrl(d.fileurl),
     },
   };

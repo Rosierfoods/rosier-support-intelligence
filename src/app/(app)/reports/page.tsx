@@ -12,7 +12,7 @@ export default async function ReportsPage() {
   const canExport = s.permissions.has('reports.export');
   return (
     <div className="space-y-5">
-      <PageHeader title="Reports & Analytics" description="Standard reports with filters, drill-down to the underlying conversations, CSV export and print-ready layouts." />
+      <PageHeader title="Reports & Analytics" description="Standard reports with filters, drill-down to the underlying conversations, Excel download and print-ready layouts." />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {REPORTS.map((r) => (
           <Link key={r.key} href={`/reports/${r.key}`} className="card group flex flex-col p-4 transition-colors hover:border-brand-500/40">
@@ -24,13 +24,13 @@ export default async function ReportsPage() {
             <p className="mt-1 flex-1 text-xs leading-relaxed text-ink-muted">{r.description}</p>
             <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-ink-faint">
               <span>Default: {RANGE_PRESETS.find((p) => p.key === r.defaultRange)?.label}</span>
-              {canExport && <span className="inline-flex items-center gap-1"><Download size={11} aria-hidden /> CSV</span>}
+              {canExport && <span className="inline-flex items-center gap-1"><Download size={11} aria-hidden /> Excel</span>}
               <span className="inline-flex items-center gap-1"><Printer size={11} aria-hidden /> Print / PDF</span>
             </p>
           </Link>
         ))}
       </div>
-      {!canExport && <p className="text-xs text-ink-muted">CSV export requires the “Export reports / CSV” permission.</p>}
+      {!canExport && <p className="text-xs text-ink-muted">Excel export requires the “Export reports / CSV” permission.</p>}
       <p className="text-2xs text-ink-faint">Customer issue trends and Pareto analysis live on <Link className="link" href="/issues">Customer Issues & Root Causes</Link>; agent comparisons on <Link className="link" href="/agents">Agent Performance</Link>.</p>
     </div>
   );

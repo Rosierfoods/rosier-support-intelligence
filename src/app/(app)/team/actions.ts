@@ -4,7 +4,8 @@ import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { assertPermission, auditAction, hashPassword, validatePasswordStrength, type Session } from '@/lib/auth/session';
 import { withOrg, type Db } from '@/lib/db';
-import { randomToken } from '@/lib/crypto';
+import { normalisePhone, randomToken } from '@/lib/crypto';
+import { rematchAgentsByPhone } from '@/lib/ingestion/ingest';
 import { PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, type Permission } from '@/lib/auth/rbac';
 import { ROLES, type Role } from '@/lib/constants';
 import type { ActionResult } from '@/components/analytics/ActionForm';
@@ -220,6 +221,16 @@ const agentSchema = z.object({
   teamId: optUuid,
   userId: optUuid,
   externalIds: extIds,
+  phones: z.string().trim().max(500).optional().transform((v, ctx) => {
+    const parts = (v ?? '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
+    const out: string[] = [];
+    for (const p of parts) {
+      const n = normalisePhone(p);
+      if (!n) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"${p}" is not a valid phone number.` }); return z.NEVER; }
+      if (!out.includes(n)) out.push(n);
+    }
+    return out;
+  }),
   active: z.enum(['true', 'false']).optional().default('true'),
 });
 
@@ -233,14 +244,19 @@ export async function saveAgent(_: ActionResult, fd: FormData): Promise<ActionRe
         const clash = await db.one<{ name: string }>(`SELECT name FROM agents WHERE external_ids->>$1 = $2 AND ($3::uuid IS NULL OR id <> $3)`, [provider, ext, v.id]);
         if (clash) throw new Error(`${provider} ID "${ext}" is already mapped to ${clash.name}.`);
       }
+      // A mobile number identifies exactly one agent.
+      for (const p of v.phones) {
+        const clash = await db.one<{ name: string }>(`SELECT name FROM agents WHERE $1 = ANY(phone_numbers) AND ($2::uuid IS NULL OR id <> $2)`, [p, v.id]);
+        if (clash) throw new Error(`Number ${p} is already assigned to ${clash.name}.`);
+      }
       let id = v.id;
       if (id) {
-        const n = await db.exec(`UPDATE agents SET name = $2, email = $3, team_id = $4, external_ids = $5, is_active = $6 WHERE id = $1`,
-          [id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true']);
+        const n = await db.exec(`UPDATE agents SET name = $2, email = $3, team_id = $4, external_ids = $5, is_active = $6, phone_numbers = $7 WHERE id = $1`,
+          [id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones]);
         if (!n) throw new Error('Agent not found.');
       } else {
-        const a = await db.one<{ id: string }>(`INSERT INTO agents (org_id, name, email, team_id, external_ids, is_active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-          [s.org.id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true']);
+        const a = await db.one<{ id: string }>(`INSERT INTO agents (org_id, name, email, team_id, external_ids, is_active, phone_numbers) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+          [s.org.id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones]);
         id = a!.id;
       }
       const cur = await db.one<{ user_id: string | null }>(`SELECT user_id FROM agents WHERE id = $1`, [id]);
@@ -250,11 +266,25 @@ export async function saveAgent(_: ActionResult, fd: FormData): Promise<ActionRe
         if (v.userId) await linkUserAgent(db, v.userId, id);
       }
       await auditAction(db, s, v.id ? 'agent.update' : 'agent.create', 'agent', id, {
-        name: v.name, team_id: v.teamId, user_id: v.userId, providers: Object.keys(v.externalIds), active: v.active === 'true',
+        name: v.name, team_id: v.teamId, user_id: v.userId, providers: Object.keys(v.externalIds), active: v.active === 'true', phones: v.phones.length,
       });
+      await rematchAgentsByPhone(db);
     });
     revalidatePath('/team');
     return { ok: true, message: v.id ? 'Agent saved.' : 'Agent created.' };
+  } catch (e) { return fail(e); }
+}
+
+export async function rematchAgents(_: ActionResult, _fd: FormData): Promise<ActionResult> {
+  try {
+    const s = await guard();
+    const n = await withOrg(s.org.id, async (db) => {
+      const n = await rematchAgentsByPhone(db);
+      await auditAction(db, s, 'agent.rematch', 'agent', null, { updated: n });
+      return n;
+    });
+    revalidatePath('/team');
+    return { ok: true, message: n ? `${n} call(s) assigned to agents by mobile number.` : 'No unassigned calls matched a saved number. Calls imported before this update need a re-import first (Integrations → MyOperator → Run historical import).' };
   } catch (e) { return fail(e); }
 }
 

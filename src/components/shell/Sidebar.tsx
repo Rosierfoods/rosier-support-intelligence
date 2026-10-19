@@ -5,13 +5,13 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import {
   BookOpen, FileBarChart, GraduationCap, Inbox, LayoutDashboard, Mail, Menu, MessageCircle, Phone, PieChart, Plug,
-  ScrollText, Settings, ShieldAlert, Sparkles, UserCog, Users, X, type LucideIcon,
+  Ticket, CalendarDays, ClipboardCheck, ScrollText, Settings, ShieldAlert, Sparkles, UserCog, Users, X, type LucideIcon,
 } from 'lucide-react';
 import type { NavItem } from './nav';
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Inbox, Phone, MessageCircle, Mail, ShieldAlert, PieChart, Users, GraduationCap, FileBarChart, Plug, Sparkles, BookOpen,
-  UserCog, ScrollText, Settings,
+  UserCog, ScrollText, Settings, Ticket, CalendarDays, ClipboardCheck,
 };
 
 export function Sidebar({ items, orgName }: { items: (NavItem & { displayLabel: string })[]; orgName: string }) {
@@ -20,6 +20,10 @@ export function Sidebar({ items, orgName }: { items: (NavItem & { displayLabel: 
   const [prevPath, setPrevPath] = useState(pathname);
   if (prevPath !== pathname) { setPrevPath(pathname); setOpen(false); }
   const groups = Array.from(new Set(items.map((i) => i.group)));
+  // The most specific matching entry is active (so /agents/activity doesn't also highlight /agents).
+  const activeHref = items.map((i) => i.href)
+    .filter((h) => (h === '/' ? pathname === '/' : pathname === h || pathname.startsWith(h + '/')))
+    .sort((a, b) => b.length - a.length)[0];
 
   const nav = (
     <nav className="flex h-full flex-col">
@@ -36,7 +40,7 @@ export function Sidebar({ items, orgName }: { items: (NavItem & { displayLabel: 
             <p className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-ink-faint">{g}</p>
             {items.filter((i) => i.group === g).map((i) => {
               const Icon = ICONS[i.icon] ?? LayoutDashboard;
-              const active = i.href === '/' ? pathname === '/' : pathname === i.href || pathname.startsWith(i.href + '/');
+              const active = i.href === activeHref;
               return (
                 <Link key={i.href} href={i.href}
                   className={clsx('flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors',

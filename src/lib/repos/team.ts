@@ -27,7 +27,7 @@ export async function listTeams(db: Db) {
 
 export async function listAgentsAdmin(db: Db) {
   return db.query(
-    `SELECT a.id, a.name, a.email, a.team_id, t.name AS team, a.user_id, u.email AS user_email, a.external_ids, a.is_active, a.is_demo,
+    `SELECT a.id, a.name, a.email, a.team_id, t.name AS team, a.user_id, u.email AS user_email, a.external_ids, a.phone_numbers, a.is_active, a.is_demo,
             (SELECT count(*) FROM interactions i WHERE i.agent_id = a.id)::int AS interactions
        FROM agents a LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN users u ON u.id = a.user_id ORDER BY a.is_active DESC, a.name`);
 }

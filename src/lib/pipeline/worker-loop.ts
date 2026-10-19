@@ -6,6 +6,8 @@ import { hostname } from 'node:os';
 import { withSystem } from '@/lib/db';
 import { claimJobs, requeueStale, type Job } from './jobs';
 import { enqueueScheduledJobs, runClaimedJob } from './handlers';
+import { runOrderMatchingBatch } from '@/lib/orders/enrich';
+import { runTicketBackfillBatch } from '@/lib/orders/tickets';
 
 const g = globalThis as unknown as { __rsiWorkerStarted?: boolean };
 
@@ -33,6 +35,10 @@ export function startWorkerLoop(opts: { concurrency?: number; pollMs?: number } 
       if (doRetention) lastRetention = now;
       if (r.syncs || r.sla || r.retention) log(`scheduled syncs=${r.syncs} sla=${r.sla} retention=${r.retention}`);
     } catch (e) { log(`scheduler error: ${(e as Error).message}`); }
+    try { const n = await runOrderMatchingBatch(log); if (n) log(`order matching: ${n} checked`); }
+    catch (e) { log(`order matching error: ${(e as Error).message}`); }
+    try { const n = await runTicketBackfillBatch(log); if (n) log(`tickets back-filled: ${n}`); }
+    catch (e) { log(`ticket backfill error: ${(e as Error).message}`); }
   }
 
   async function loop() {

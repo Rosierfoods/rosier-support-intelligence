@@ -10,6 +10,7 @@ import { ClearFilters, ParamSelect, RangeFilter } from '@/components/filters';
 import { SortLink } from '@/components/pagination';
 import { GatedScore, DeltaBadge } from '@/components/analytics/agentFormat';
 import { SampleNote } from '@/components/analytics/SampleNote';
+import { AgentTabs } from '@/components/analytics/AgentTabs';
 import { MIN_SAMPLE } from '@/components/analytics/format';
 import { SERIES } from '@/lib/palette';
 import { CHANNELS, CHANNEL_LABELS } from '@/lib/constants';
@@ -95,6 +96,7 @@ export default async function AgentsPage(props: { searchParams: Promise<SP> }) {
           <RangeFilter />
           <ClearFilters />
         </>} />
+      <AgentTabs current="/agents" searchParams={searchParams} />
 
       <Notice tone="info" title="How to read this page fairly">
         Agents are not ranked by speed or volume. Compare people on the same channel and case type (use the filters), and read quality alongside case mix:

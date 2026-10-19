@@ -4,33 +4,33 @@ import { withOrg } from '@/lib/db';
 import type { SP } from '@/lib/filters';
 import { describeFilters, exportInteractions, EXPORT_MAX_ROWS, parseInteractionFilters } from '@/lib/repos/interactions';
 import type { Channel } from '@/lib/constants';
+import { buildXlsx, xlsxResponseHeaders, type XCell } from '@/lib/xlsx';
 
 export const dynamic = 'force-dynamic';
 
 const PRESETS: Record<string, Channel[]> = { call: ['call'], chat: ['chat', 'whatsapp'], email: ['email'] };
 
 const COLUMNS: [string, string][] = [
-  ['ref', 'Interaction ID'], ['occurred_at', 'Date/time (IST)'], ['source_platform', 'Source platform'], ['channel', 'Channel'],
-  ['direction', 'Direction'], ['customer_name', 'Customer name'], ['customer_phone', 'Customer phone'], ['customer_email', 'Customer email'],
-  ['agent_name', 'Assigned agent'], ['team_name', 'Team'], ['call_status', 'Call status'], ['duration_seconds', 'Call duration (s)'],
-  ['recording_available', 'Recording available'], ['subject', 'Subject'], ['ai_summary', 'AI summary (AI-generated)'],
-  ['customer_intent', 'Customer intent (AI-generated)'], ['product', 'Product'], ['issue_category', 'Issue category'],
-  ['issue_subcategory', 'Issue subcategory'], ['issue_labels', 'All issue labels'], ['sentiment', 'Sentiment'],
-  ['quality_score', 'Quality score'], ['quality_band', 'Quality band'], ['detected_errors', 'Detected errors (alerts)'],
-  ['recommended_improvement', 'Recommended improvement (AI-generated)'], ['first_response_seconds', 'First response (s)'],
-  ['resolution_seconds', 'Resolution time (s)'], ['resolution_status', 'Resolution status'], ['ticket_ref', 'Linked ticket ID'],
+  ['order_ref', 'Order ID'], ['order_status', 'Order check'], ['ref', 'Interaction ID'], ['occurred_at', 'Date/time (IST)'],
+  ['channel', 'Channel'], ['direction', 'Incoming / outgoing'], ['source_platform', 'Source platform'],
+  ['customer_name', 'Customer name'], ['customer_phone', 'Customer phone'], ['customer_email', 'Customer email'],
+  ['agent_name', 'Agent'], ['team_name', 'Team'], ['call_status', 'Call status'], ['duration_seconds', 'Call duration (s)'],
+  ['recording_available', 'Recording available'], ['issue_category', 'Issue category'], ['issue_subcategory', 'Issue subcategory'],
+  ['issue_labels', 'All issue labels'], ['product', 'Product'], ['ticket_problem', 'Problem (ticket)'], ['ticket_action', 'What the agent did'],
+  ['ticket_resolution_type', 'Action type'], ['ticket_priority', 'Ticket priority'], ['ticket_status', 'Ticket status'], ['ticket_ref', 'Ticket ID'],
+  ['ai_summary', 'AI summary'], ['customer_intent', 'Customer intent'], ['sentiment', 'Sentiment'],
+  ['quality_score', 'Quality score'], ['quality_band', 'Quality band'], ['detected_errors', 'Alerts / detected errors'],
+  ['recommended_improvement', 'Recommended improvement'], ['first_response_seconds', 'First response (s)'],
+  ['resolution_seconds', 'Resolution time (s)'], ['resolution_status', 'Resolution status'], ['subject', 'Subject'],
   ['review_status', 'Review status'], ['processing_status', 'Processing status'], ['source_record_id', 'Source record ID'], ['is_demo', 'Demo data'],
 ];
 
-const IST = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-/** RFC 4180 escaping + spreadsheet formula-injection guard. */
-function cell(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  let s = v instanceof Date ? IST.format(v)
-    : typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+function value(r: Record<string, any>, k: string): XCell {
+  if (k === 'direction') return r.channel === 'call' ? (r.direction === 'outbound' ? 'Outgoing' : 'Incoming') : r.direction === 'outbound' ? 'Sent' : 'Received';
+  if (k === 'order_status') return !r.order_ref ? '' : r.order_verified ? 'Verified in Shopify' : r.order_source === 'manual' ? 'Entered manually' : 'From conversation (unverified)';
+  if (k === 'quality_score') return r.quality_score === null || r.quality_score === undefined ? null : Number(r.quality_score);
+  const v = r[k];
+  return v instanceof Date || typeof v === 'number' || typeof v === 'boolean' || v === null || v === undefined ? v : String(v);
 }
 
 export async function GET(req: NextRequest) {
@@ -58,16 +58,12 @@ export async function GET(req: NextRequest) {
     return out;
   });
 
-  const lines = [COLUMNS.map(([, h]) => cell(h)).join(',')];
-  for (const r of rows) lines.push(COLUMNS.map(([k]) => cell((r as Record<string, unknown>)[k])).join(','));
-  if (truncated) lines.push(cell(`Export truncated at ${EXPORT_MAX_ROWS.toLocaleString('en-IN')} rows — narrow the filters to export the rest.`));
+  const data: XCell[][] = [COLUMNS.map(([, h]) => h)];
+  for (const r of rows) data.push(COLUMNS.map(([k]) => value(r as Record<string, any>, k)));
+  if (truncated) data.push([`Export truncated at ${EXPORT_MAX_ROWS.toLocaleString('en-IN')} rows — narrow the filters to export the rest.`]);
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-  return new NextResponse('﻿' + lines.join('\r\n') + '\r\n', {
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="rosier-interactions-${date}.csv"`,
-      'Cache-Control': 'no-store',
-      'X-Export-Rows': String(rows.length),
-    },
+  const name = preset === PRESETS.call ? 'calls' : preset === PRESETS.chat ? 'chats' : preset === PRESETS.email ? 'emails' : 'interactions';
+  return new NextResponse(new Uint8Array(buildXlsx([{ name: name[0].toUpperCase() + name.slice(1), rows: data }])), {
+    headers: { ...xlsxResponseHeaders(`rosier-${name}-${date}.xlsx`), 'X-Export-Rows': String(rows.length) },
   });
 }

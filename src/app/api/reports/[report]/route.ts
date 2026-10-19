@@ -4,16 +4,9 @@ import { withOrg } from '@/lib/db';
 import { getReport, parseReportFilters, sanitiseReportFilters, type ReportColumn } from '@/lib/repos/reports';
 import { rateLimit } from '@/lib/auth/rate-limit';
 import { fmtDateTime } from '@/lib/format';
+import { buildXlsx, xlsxResponseHeaders, type XCell, type XSheet } from '@/lib/xlsx';
 
 export const dynamic = 'force-dynamic';
-
-/** Neutralise spreadsheet formula injection and quote per RFC 4180. */
-function csvCell(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  let s = v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 
 function rawValue(c: ReportColumn, v: any) {
   if (v === null || v === undefined || v === '') return '';
@@ -43,34 +36,31 @@ export async function GET(req: NextRequest, props: { params: Promise<{ report: s
   const { range, f: rawF } = parseReportFilters(def, sp);
 
   try {
-    const { csv, rows } = await withOrg(s.org.id, async (db) => {
+    const { sheets, rows } = await withOrg(s.org.id, async (db) => {
       const f = await sanitiseReportFilters(db, s, rawF);
       const result = await def.run(db, s, f);
-      const lines: string[] = [
-        csvCell(`${def.title} — ${s.org.name}`),
-        csvCell(`Date range (IST): ${fmtDateTime(range.from)} to ${fmtDateTime(range.to)}`),
-        csvCell(`Sample size: ${result.sampleSize} ${result.sampleUnit}${result.hasDemo ? ' — includes DEMO DATA (synthetic)' : ''}`),
-        ...result.notes.map((n) => csvCell(`Note: ${n}`)),
-        csvCell(`Generated ${new Date().toISOString()} by ${s.user.email}`),
+      const info: XCell[][] = [
+        [def.title], [s.org.name],
+        [`Date range (IST): ${fmtDateTime(range.from)} to ${fmtDateTime(range.to)}`],
+        [`Sample size: ${result.sampleSize} ${result.sampleUnit}${result.hasDemo ? ' — includes DEMO DATA (synthetic)' : ''}`],
+        ...result.notes.map((n) => [`Note: ${n}`]),
+        [`Generated ${fmtDateTime(new Date())} by ${s.user.email}`],
       ];
+      const sheets: XSheet[] = [{ name: 'Report info', rows: info, headerRows: 1 }];
       let rows = 0;
       for (const sec of result.sections) {
-        lines.push('', csvCell(sec.title) + (sec.truncated ? ',' + csvCell('(first 500 rows)') : ''));
-        lines.push(sec.columns.map((c) => csvCell(header(c))).join(','));
-        for (const r of sec.rows) { lines.push(sec.columns.map((c) => csvCell(rawValue(c, r[c.key]))).join(',')); rows++; }
+        const data: XCell[][] = [sec.columns.map((c) => header(c))];
+        for (const r of sec.rows) { data.push(sec.columns.map((c) => { const v = rawValue(c, r[c.key]); return v !== null && typeof v === 'object' && !(v instanceof Date) ? JSON.stringify(v) : (v as XCell); })); rows++; }
+        if (sec.truncated) data.push(['(first 500 rows)']);
+        sheets.push({ name: sec.title, rows: data });
       }
       const filters = Object.fromEntries(Object.entries({ ...f, from: range.from.toISOString(), to: range.to.toISOString() }).filter(([, v]) => v !== null && v !== undefined));
       await auditAction(db, s, 'export.report', 'report', def.key, { filters, row_count: rows, pii_unmasked: s.permissions.has('customer_pii.view') });
-      return { csv: '﻿' + lines.join('\r\n') + '\r\n', rows };
+      return { sheets, rows };
     });
     const date = new Date().toISOString().slice(0, 10);
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="rsi-${def.key}-${date}.csv"`,
-        'Cache-Control': 'no-store',
-        'X-Row-Count': String(rows),
-      },
+    return new NextResponse(new Uint8Array(buildXlsx(sheets)), {
+      headers: { ...xlsxResponseHeaders(`rosier-${def.key}-${date}.xlsx`), 'X-Row-Count': String(rows) },
     });
   } catch (e) {
     console.error('report export failed', def.key, e);

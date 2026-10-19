@@ -22,6 +22,7 @@ type SortField = keyof typeof SORT_FIELDS;
 
 export interface InteractionFilters {
   range: DateRange;
+  direction?: 'inbound' | 'outbound';
   /** Channels allowed by the page preset (e.g. chats page = chat + whatsapp). Empty = all. */
   channels: Channel[];
   platform?: string;
@@ -78,6 +79,7 @@ export function parseInteractionFilters(searchParams: SP, opts: { presetChannels
     review: spAll(searchParams, 'review').filter((r) => (REVIEW_STATUSES as readonly string[]).includes(r)),
     complaints: sp(searchParams, 'complaints') === '1',
     callStatus: oneOf(sp(searchParams, 'call_status'), CALL_STATUSES),
+    direction: sp(searchParams, 'direction') === 'inbound' ? 'inbound' : sp(searchParams, 'direction') === 'outbound' ? 'outbound' : undefined,
     q: q || undefined,
     sort: { field, dir: sd === 'asc' ? 'asc' : 'desc' },
   };
@@ -87,7 +89,7 @@ export function parseInteractionFilters(searchParams: SP, opts: { presetChannels
 export function describeFilters(f: InteractionFilters): Record<string, unknown> {
   const out: Record<string, unknown> = { range: f.range.preset === 'custom' ? f.range.label : f.range.preset };
   const keys: (keyof InteractionFilters)[] = ['channels', 'platform', 'agentId', 'teamId', 'product', 'category', 'subcategory', 'severity',
-    'sentiment', 'scoreMin', 'scoreMax', 'resolution', 'processing', 'review', 'complaints', 'callStatus', 'q'];
+    'sentiment', 'scoreMin', 'scoreMax', 'resolution', 'processing', 'review', 'complaints', 'callStatus', 'direction', 'q'];
   for (const k of keys) {
     const v = f[k];
     if (v === undefined || v === false || (Array.isArray(v) && !v.length)) continue;
@@ -125,6 +127,7 @@ export function applyInteractionFilters(s: Session, f: InteractionFilters, b: Sq
   if (f.processing) b.and(`${i}.processing_status = ${b.p(f.processing)}`);
   if (f.review.length) b.and(`${i}.review_status = ANY(${b.p(f.review)})`);
   if (f.callStatus) b.and(`EXISTS (SELECT 1 FROM calls cs WHERE cs.interaction_id = ${i}.id AND cs.call_status = ${b.p(f.callStatus)})`);
+  if (f.direction) b.and(`${i}.direction = ${b.p(f.direction)}`);
   if (f.q) {
     const like = b.p(`%${escapeLike(f.q)}%`);
     const tsq = b.p(f.q);
@@ -132,6 +135,7 @@ export function applyInteractionFilters(s: Session, f: InteractionFilters, b: Sq
       `${i}.search_tsv @@ websearch_to_tsquery('simple', ${tsq})`,
       `${i}.search_text ILIKE ${like}`,
       `${i}.ref ILIKE ${like}`,
+      `${i}.order_ref ILIKE ${like}`,
       `${i}.subject ILIKE ${like}`,
       `${i}.preview ILIKE ${like}`,
       `EXISTS (SELECT 1 FROM agents qa WHERE qa.id = ${i}.agent_id AND qa.name ILIKE ${like})`,
@@ -150,6 +154,7 @@ export function applyInteractionFilters(s: Session, f: InteractionFilters, b: Sq
 
 export interface InteractionRow {
   id: string; ref: string; is_demo: boolean; occurred_at: string; channel: Channel; source_platform: string;
+  direction: 'inbound' | 'outbound'; order_ref: string | null; order_verified: boolean; order_source: string | null;
   subject: string | null; preview: string | null; product: string | null; sentiment: string | null;
   quality_score: string | null; quality_band: string | null; resolution_status: string; processing_status: string; review_status: string;
   first_response_seconds: number | null; customer_name: string | null; customer_contact: string | null;
@@ -162,7 +167,7 @@ export interface InteractionRow {
 const SEVERITY_RANK = `CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
 
 const LIST_SELECT = `
-  SELECT i.id, i.ref, i.is_demo, i.occurred_at, i.channel, i.source_platform, i.subject, i.preview, i.product, i.sentiment,
+  SELECT i.id, i.ref, i.is_demo, i.occurred_at, i.channel, i.direction, i.order_ref, i.order_verified, i.order_source, i.source_platform, i.subject, i.preview, i.product, i.sentiment,
          i.quality_score, i.quality_band, i.resolution_status, i.processing_status, i.review_status, i.first_response_seconds,
          cu.name AS customer_name, cu.phone AS customer_phone, cu.email AS customer_email,
          a.id AS agent_id, a.name AS agent_name, t.name AS team_name,
@@ -212,11 +217,12 @@ export async function exportInteractions(db: Db, s: Session, f: InteractionFilte
   applyInteractionFilters(s, f, b);
   const order = `${SORT_FIELDS[f.sort.field]} ${f.sort.dir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, i.occurred_at DESC`;
   const rows = await db.query(
-    `SELECT i.ref, i.occurred_at, i.source_platform, i.channel, i.direction, i.source_record_id, i.subject, i.ai_summary, i.customer_intent,
+    `SELECT i.ref, i.order_ref, i.order_verified, i.order_source, i.occurred_at, i.source_platform, i.channel, i.direction, i.source_record_id, i.subject, i.ai_summary, i.customer_intent,
             i.product, i.sentiment, i.quality_score, i.quality_band, i.resolution_status, i.review_status, i.processing_status, i.is_demo,
             i.first_response_seconds, i.resolution_seconds,
             cu.name AS customer_name, cu.phone AS customer_phone, cu.email AS customer_email,
-            a.name AS agent_name, t.name AS team_name, tk.external_id AS ticket_ref,
+            a.name AS agent_name, t.name AS team_name, tk.external_id AS ticket_ref, tk.problem AS ticket_problem, tk.action_taken AS ticket_action,
+            tk.resolution_type AS ticket_resolution_type, tk.priority AS ticket_priority, tk.status AS ticket_status,
             cl.call_status, cl.duration_seconds, cl.recording_available,
             (SELECT string_agg(c.name || coalesce(' › ' || sc.name, ''), '; ' ORDER BY l.is_primary DESC, l.created_at)
                FROM interaction_issue_labels l JOIN issue_categories c ON c.id = l.category_id
@@ -318,7 +324,8 @@ export async function getInteractionDetail(db: Db, s: Session, id: string) {
   const base = await db.one(
     `SELECT i.*, a.name AS agent_name, t.name AS team_name,
             cu.name AS customer_name, cu.phone AS customer_phone, cu.email AS customer_email,
-            tk.external_id AS ticket_ref, tk.subject AS ticket_subject, tk.status AS ticket_status, tk.order_ref AS ticket_order_ref
+            tk.external_id AS ticket_ref, tk.subject AS ticket_subject, tk.status AS ticket_status, tk.order_ref AS ticket_order_ref,
+            tk.problem AS ticket_problem, tk.action_taken AS ticket_action, tk.resolution_type AS ticket_resolution_type, tk.priority AS ticket_priority, tk.category AS ticket_category
        FROM interactions i
        LEFT JOIN agents a ON a.id = i.agent_id
        LEFT JOIN teams t ON t.id = i.team_id
@@ -476,6 +483,34 @@ export async function addReviewerNote(db: Db, s: Session, id: string, note: stri
   const cur = await mustGet(db, s, id);
   await decision(db, s, { targetType: 'interaction', targetId: id, interactionId: id, decision: 'comment', notes: note });
   await auditAction(db, s, 'interaction.note_added', 'interaction', id, { ref: cur.ref });
+}
+
+/** Re-queue every failed (or stuck "no provider") interaction in the caller's scope. */
+/** Set the order for an interaction by hand (overrides AI / Shopify matching) and re-check it against Shopify. */
+export async function setInteractionOrder(db: Db, s: Session, id: string, orderRef: string | null) {
+  const cur = await mustGet(db, s, id);
+  await db.exec(
+    `UPDATE interactions SET order_ref = $2, order_source = CASE WHEN $2::text IS NULL THEN NULL ELSE 'manual' END,
+       order_verified = false, order_details = NULL, order_checked_at = NULL WHERE id = $1`, [id, orderRef]);
+  await db.exec(`UPDATE support_tickets SET order_ref = $2 WHERE interaction_id = $1`, [id, orderRef]);
+  await auditAction(db, s, 'interaction.order_set', 'interaction', id, { ref: cur.ref, order_ref: orderRef });
+}
+
+/** Ask the background matcher to check this interaction against Shopify again. */
+export async function recheckInteractionOrder(db: Db, s: Session, id: string) {
+  await mustGet(db, s, id);
+  await db.exec(`UPDATE interactions SET order_checked_at = NULL WHERE id = $1`, [id]);
+}
+
+export async function retryFailedProcessing(db: Db, s: Session, channel?: string): Promise<number> {
+  const b = new SqlBuilder();
+  b.and(scopeInteractions(s, b, 'i'));
+  b.and(`i.processing_status = 'failed'`);
+  if (channel) b.and(`i.channel = ${b.p(channel)}`);
+  const rows = await db.query<{ id: string }>(`SELECT i.id FROM interactions i ${b.whereSql()} ORDER BY i.occurred_at DESC LIMIT 2000`, b.params);
+  for (const r of rows) await enqueueProcessing(db, s.org.id, r.id, { force: true, reason: 'bulk_retry' });
+  await auditAction(db, s, 'processing.retry_bulk', 'interaction', null, { count: rows.length, channel: channel ?? null });
+  return rows.length;
 }
 
 export async function retryInteractionProcessing(db: Db, s: Session, id: string) {

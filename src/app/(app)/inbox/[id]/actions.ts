@@ -5,7 +5,7 @@ import { assertPermission, getSession, type Session } from '@/lib/auth/session';
 import type { Permission } from '@/lib/auth/rbac';
 import { withOrg } from '@/lib/db';
 import {
-  addIssueLabel, addReviewerNote, correctEvaluation, removeIssueLabel, retryInteractionProcessing, ReviewError, setRootCauseStatus,
+  addIssueLabel, addReviewerNote, correctEvaluation, recheckInteractionOrder, removeIssueLabel, retryFailedProcessing, setInteractionOrder, retryInteractionProcessing, ReviewError, setRootCauseStatus,
   updateInteractionStatus,
 } from '@/lib/repos/interactions';
 import { RESOLUTION_STATUSES, REVIEW_STATUSES, SEVERITIES } from '@/lib/constants';
@@ -132,5 +132,42 @@ export async function rootCauseAction(_: ActionResult, fd: FormData): Promise<Ac
     const v = rootCauseSchema.parse(Object.fromEntries(fd));
     await withOrg(s.org.id, (db) => setRootCauseStatus(db, s, v.interactionId, v.rootCauseId, v.status, v.note));
     return v.status === 'suspected' ? 'Root cause reset to suspected.' : `Root cause ${v.status}.`;
+  });
+}
+
+const bulkSchema = z.object({ channel: z.enum(['call', 'chat', 'whatsapp', 'email']).optional() });
+/** Re-queue all failed interactions (e.g. after Sarvam / the AI provider was connected or a key was fixed). */
+export async function retryAllFailedAction(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  try {
+    const s = await assertPermission('processing.retry');
+    const v = bulkSchema.parse({ channel: fd.get('channel') || undefined });
+    const n = await withOrg(s.org.id, (db) => retryFailedProcessing(db, s, v.channel));
+    revalidatePath('/calls'); revalidatePath('/inbox');
+    return { ok: true, message: n ? `${n} item(s) re-queued. Refresh in a few minutes.` : 'Nothing has failed — no items to retry.' };
+  } catch (e) {
+    if (e instanceof Error && /permission|signed in/i.test(e.message)) return { ok: false, error: e.message };
+    console.error('[bulk retry]', e);
+    return { ok: false, error: 'Could not re-queue. Please try again.' };
+  }
+}
+
+const orderSchema = z.object({ interactionId: uuid, orderRef: z.string().trim().max(40).optional().transform((v) => v || null) });
+export async function setOrderAction(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  const id = String(fd.get('interactionId') ?? '');
+  return run(id, async () => {
+    const s = await assertAny(['evaluations.correct', 'flags.review']);
+    const v = orderSchema.parse(Object.fromEntries(fd));
+    await withOrg(s.org.id, (db) => setInteractionOrder(db, s, v.interactionId, v.orderRef));
+    return v.orderRef ? 'Order saved — it will be verified with Shopify within a minute.' : 'Order removed.';
+  });
+}
+
+export async function recheckOrderAction(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  const id = String(fd.get('interactionId') ?? '');
+  return run(id, async () => {
+    const s = await assertAny(['evaluations.correct', 'flags.review', 'processing.retry']);
+    uuid.parse(id);
+    await withOrg(s.org.id, (db) => recheckInteractionOrder(db, s, id));
+    return 'Queued — refresh in about a minute.';
   });
 }

@@ -12,6 +12,7 @@ import { applyAlerts } from '@/lib/ai/alerts';
 import { HEURISTIC_PROVIDER } from '@/lib/ai/heuristic';
 import { noteConnectionError, type LoadedConnection } from '@/lib/ai/connections';
 import { aiModelName } from '@/lib/ai/provider';
+import { upsertAutoTicket } from '@/lib/orders/tickets';
 import { PipelineError, ProviderError, errorMessage } from '@/lib/ai/errors';
 
 export interface AnalyzeResult { status: 'completed' | 'requires_review'; score: number | null; flags: number; provider: string; model: string }
@@ -73,7 +74,7 @@ export async function persistAnalysis(db: Db, ctx: AnalysisContext, raw: RawAnal
     score: { overall, band, groups, weights },
     sla_candidates: ctx.slaCandidates,
     validation: { dropped: pp.dropped, strict_schema: raw.strict ?? null },
-    analyzer: raw.provider === HEURISTIC_PROVIDER ? 'Heuristic demo analyzer (keyword rules, not AI)' : 'Claude',
+    analyzer: raw.provider === HEURISTIC_PROVIDER ? 'Heuristic demo analyzer (keyword rules, not AI)' : raw.provider === 'gemini' ? 'Gemini' : 'Claude',
   };
 
   await db.exec(`UPDATE ai_analyses SET is_current = false WHERE interaction_id = $1 AND kind = 'full' AND is_current`, [i.id]);
@@ -144,6 +145,34 @@ export async function persistAnalysis(db: Db, ctx: AnalysisContext, raw: RawAnal
     humanCurrent
       ? [i.id, status, needsReview ? reviewReason(out, minConf) : null, out.sentiment, out.summary || null, out.customer_intent || null, product]
       : [i.id, status, needsReview ? reviewReason(out, minConf) : null, out.sentiment, out.summary || null, out.customer_intent || null, product, overall, band]);
+  // Order mentioned in the conversation (AI) — verified against Shopify by the background order matcher.
+  const aiOrder = pp.labels.map((l) => (l.order_ref ?? '').trim()).find((r) => r.length >= 3 && r.length <= 40) ?? null;
+  await db.exec(
+    `UPDATE interactions SET order_checked_at = NULL,
+       order_ref = CASE WHEN order_source IS NULL OR order_source IN ('ai','shopify') THEN coalesce($2, order_ref) ELSE order_ref END,
+       order_source = CASE WHEN $2::text IS NOT NULL AND (order_source IS NULL OR order_source = 'shopify') THEN 'ai' ELSE order_source END,
+       order_verified = CASE WHEN $2::text IS NOT NULL AND $2 IS DISTINCT FROM order_ref THEN false ELSE order_verified END
+     WHERE id = $1`, [i.id, aiOrder]);
+
+  // Ticket: what the problem was and what the agent did.
+  const primary = pp.labels.find((l) => l.is_primary) ?? pp.labels[0] ?? null;
+  const catName = new Map(ctx.categories.map((c) => [c.code, c.name]));
+  const sev = await db.one<{ severity: string | null }>(
+    `SELECT severity FROM quality_flags WHERE interaction_id = $1 AND status <> 'false_positive'
+      ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT 1`, [i.id]);
+  const cur2 = await db.one<{ customer_id: string | null; order_ref: string | null; resolution_status: string; occurred_at: Date }>(
+    `SELECT customer_id, order_ref, resolution_status, occurred_at FROM interactions WHERE id = $1`, [i.id]);
+  await upsertAutoTicket(db, {
+    orgId: i.org_id, interactionId: i.id, ref: i.ref, channel: i.channel, agentId: i.agent_id, customerId: cur2?.customer_id ?? null,
+    occurredAt: cur2?.occurred_at ?? new Date(), summary: out.summary || null, intent: out.customer_intent || null,
+    primaryCategory: primary ? catName.get(primary.category_code) ?? primary.category_code : null,
+    primarySub: primary?.subcategory_code ? catName.get(primary.subcategory_code) ?? null : null,
+    customerReason: primary?.customer_reason ?? null, resolutionProvided: primary?.resolution_provided ?? null,
+    resolutionRequested: primary?.resolution_requested ?? null,
+    resolutionStatus: cur2?.resolution_status === 'open' ? out.resolution_status_suggestion : cur2?.resolution_status ?? 'open',
+    maxSeverity: sev?.severity ?? null, sentiment: out.sentiment, orderRef: cur2?.order_ref ?? aiOrder,
+  });
+
   await db.exec('SELECT rsi_refresh_search_text($1)', [i.id]);
   return { status, score: overall, flags: inserted.length, provider: raw.provider, model: raw.model };
 }

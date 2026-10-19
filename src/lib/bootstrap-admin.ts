@@ -27,3 +27,15 @@ export async function bootstrapAdmin() {
     console.warn(`[bootstrap] skipped: ${(e as Error).message}`);
   }
 }
+
+/** On every start: make sure each organisation has its alert rules, taxonomy and rubric (idempotent, never overwrites edits). */
+export async function ensureAllOrgDefaults() {
+  try {
+    await withSystem(async (db) => {
+      const orgs = await db.query<{ id: string }>(`SELECT id FROM organizations`);
+      for (const o of orgs) await ensureOrgDefaults(db, o.id);
+    });
+  } catch (e) {
+    console.warn(`[bootstrap] org defaults check skipped: ${(e as Error).message}`);
+  }
+}

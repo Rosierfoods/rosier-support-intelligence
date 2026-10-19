@@ -111,25 +111,63 @@ async function resolveAgent(db: Db, orgId: string, platform: string, a: Normaliz
   if (!a) return null;
   const ext = a.externalId ? String(a.externalId) : null;
   const email = a.email?.trim().toLowerCase() || null;
-  if (!ext && !email) return null;
+  const phone = normalisePhone(a.phone ?? null);
+  const name = a.name?.trim() || null;
+  const found = (r: { id: string; team_id: string | null } | null) => (r ? { id: r.id, teamId: r.team_id } : null);
+  // 1) Agent's own mobile number (set in Team → Agents) — the most reliable mapping for MyOperator.
+  if (phone) {
+    const r = await db.one<{ id: string; team_id: string | null }>(
+      `SELECT id, team_id FROM agents WHERE org_id = $1 AND $2 = ANY(phone_numbers) ORDER BY is_active DESC LIMIT 1`, [orgId, phone]);
+    if (r) {
+      if (ext) await db.exec(`UPDATE agents SET external_ids = external_ids || jsonb_build_object($2::text, $3::text) WHERE id = $1 AND NOT external_ids ? $2`, [r.id, platform, ext]);
+      return found(r);
+    }
+  }
+  const learnPhone = async (id: string) => {
+    if (phone) await db.exec(`UPDATE agents SET phone_numbers = array_append(phone_numbers, $2) WHERE id = $1 AND NOT ($2 = ANY(phone_numbers))`, [id, phone]);
+  };
+  // 2) Provider user id
   if (ext) {
     const r = await db.one<{ id: string; team_id: string | null }>(
       `SELECT id, team_id FROM agents WHERE org_id = $1 AND external_ids ->> $2 = $3 ORDER BY is_active DESC LIMIT 1`, [orgId, platform, ext]);
-    if (r) return { id: r.id, teamId: r.team_id };
+    if (r) { await learnPhone(r.id); return found(r); }
   }
+  // 3) Email
   if (email) {
     const r = await db.one<{ id: string; team_id: string | null }>(
       `SELECT id, team_id FROM agents WHERE org_id = $1 AND email = $2 ORDER BY is_active DESC LIMIT 1`, [orgId, email]);
     if (r) {
       if (ext) await db.exec(`UPDATE agents SET external_ids = external_ids || jsonb_build_object($2::text, $3::text) WHERE id = $1`, [r.id, platform, ext]);
-      return { id: r.id, teamId: r.team_id };
+      await learnPhone(r.id);
+      return found(r);
     }
   }
-  const name = (a.name?.trim() || email || `${platform} agent ${ext}`).slice(0, 200);
+  // 4) Same display name (avoid creating duplicates when the provider sends only a name + number)
+  if (name) {
+    const r = await db.one<{ id: string; team_id: string | null }>(
+      `SELECT id, team_id FROM agents WHERE org_id = $1 AND lower(name) = lower($2) ORDER BY is_active DESC LIMIT 1`, [orgId, name]);
+    if (r) {
+      if (ext) await db.exec(`UPDATE agents SET external_ids = external_ids || jsonb_build_object($2::text, $3::text) WHERE id = $1 AND NOT external_ids ? $2`, [r.id, platform, ext]);
+      await learnPhone(r.id);
+      return found(r);
+    }
+  }
+  // 5) Create — only when we know who it is (a phone number alone stays unassigned until it is added to an agent).
+  if (!ext && !email && !name) return null;
+  const display = (name || email || `${platform} agent ${ext}`).slice(0, 200);
   const r = await db.one<{ id: string }>(
-    `INSERT INTO agents (org_id, name, email, external_ids, is_active) VALUES ($1,$2,$3,$4,true) RETURNING id`,
-    [orgId, name, email, JSON.stringify(ext ? { [platform]: ext } : {})]);
+    `INSERT INTO agents (org_id, name, email, external_ids, phone_numbers, is_active) VALUES ($1,$2,$3,$4,$5,true) RETURNING id`,
+    [orgId, display, email, JSON.stringify(ext ? { [platform]: ext } : {}), phone ? [phone] : []]);
   return r ? { id: r.id, teamId: null } : null;
+}
+
+/** Assign agents to calls that have an agent-side number but no agent yet (run after numbers are added in Team → Agents). */
+export async function rematchAgentsByPhone(db: Db): Promise<number> {
+  return db.exec(
+    `UPDATE interactions i SET agent_id = a.id, team_id = a.team_id
+       FROM calls c, agents a
+      WHERE c.interaction_id = i.id AND c.agent_phone IS NOT NULL AND a.org_id = i.org_id
+        AND c.agent_phone = ANY(a.phone_numbers) AND (i.agent_id IS NULL OR i.agent_id <> a.id)`);
 }
 
 async function upsertTicket(db: Db, orgId: string, platform: string, t: NormalizedInteraction['ticket'], customerId: string | null, openedAt: Date): Promise<string | null> {
@@ -236,6 +274,7 @@ async function ingestEmails(db: Db, orgId: string, interactionId: string, rec: N
 }
 
 async function ingestCall(db: Db, orgId: string, interactionId: string, rec: NormalizedInteraction): Promise<boolean> {
+  const agentPhone = normalisePhone(rec.agent?.phone ?? null);
   const c = rec.call;
   if (!c) return false;
   const ref = c.recordingRef?.trim() || null;
@@ -243,8 +282,8 @@ async function ingestCall(db: Db, orgId: string, interactionId: string, rec: Nor
   const before = await db.one<{ recording_source_ref: string | null; call_status: string }>('SELECT recording_source_ref, call_status FROM calls WHERE interaction_id = $1', [interactionId]);
   await db.exec(
     `INSERT INTO calls (org_id, interaction_id, call_status, duration_seconds, ring_seconds, from_number_masked, to_number_masked,
-                        recording_available, recording_source_ref, language_hint)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                        recording_available, recording_source_ref, language_hint, agent_phone)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (interaction_id) DO UPDATE SET
        call_status = EXCLUDED.call_status,
        duration_seconds = coalesce(EXCLUDED.duration_seconds, calls.duration_seconds),
@@ -253,9 +292,10 @@ async function ingestCall(db: Db, orgId: string, interactionId: string, rec: Nor
        to_number_masked = coalesce(EXCLUDED.to_number_masked, calls.to_number_masked),
        recording_available = calls.recording_available OR EXCLUDED.recording_available,
        recording_source_ref = coalesce(EXCLUDED.recording_source_ref, calls.recording_source_ref),
-       language_hint = coalesce(EXCLUDED.language_hint, calls.language_hint)`,
+       language_hint = coalesce(EXCLUDED.language_hint, calls.language_hint),
+       agent_phone = coalesce(EXCLUDED.agent_phone, calls.agent_phone)`,
     [orgId, interactionId, c.status, c.durationSeconds ?? null, c.ringSeconds ?? null,
-      c.fromNumber ? maskPhone(c.fromNumber) : null, c.toNumber ? maskPhone(c.toNumber) : null, available, ref, c.languageHint ?? null]);
+      c.fromNumber ? maskPhone(c.fromNumber) : null, c.toNumber ? maskPhone(c.toNumber) : null, available, ref, c.languageHint ?? null, agentPhone]);
   // New content for the pipeline: first time we see the call, or a recording arrived later.
   return !before || (!!ref && before.recording_source_ref !== ref) || before.call_status !== c.status;
 }
