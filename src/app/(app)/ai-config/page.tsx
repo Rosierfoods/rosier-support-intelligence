@@ -1,3 +1,4 @@
+import { aiModelName, findAiConnection } from '@/lib/ai/provider';
 import Link from 'next/link';
 import { daysFromNow } from '@/lib/format';
 import clsx from 'clsx';
@@ -48,9 +49,9 @@ export default async function AiConfigPage(props: { searchParams: Promise<SP> })
   const settings = s.org.settings;
 
   const data = await withOrg(s.org.id, async (db) => {
-    const claude = await findProviderConnection(db, 'anthropic', s.org.id).catch(() => null);
+    const claude = await findAiConnection(db, s.org.id).catch(() => null);
     const sarvam = await findProviderConnection(db, 'sarvam', s.org.id).catch(() => null);
-    const base = { claude: claude ? String(claude.config.customModel || claude.config.model || 'claude-sonnet-5-5') : null, sarvam: !!sarvam };
+    const base = { claude: claude ? `${claude.provider === 'gemini' ? 'Gemini' : 'Claude'} · ${aiModelName(claude)}` : null, sarvam: !!sarvam };
     if (tab === 'rubric') {
       const criteria = await db.query(`SELECT code, name, description, group_code, channels, is_active FROM quality_criteria ORDER BY sort, code`);
       return { ...base, criteria };
@@ -85,13 +86,13 @@ export default async function AiConfigPage(props: { searchParams: Promise<SP> })
       <PageHeader title="AI Configuration" description="How interactions are scored, classified and flagged. Changes apply to new analyses; use Reprocess to re-run older ones." />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={data.claude ? 'good' : 'warn'}>{data.claude ? `AI analysis: Claude · ${data.claude}` : 'AI analysis: not connected'}</Badge>
+        <Badge tone={data.claude ? 'good' : 'warn'}>{data.claude ? `AI analysis: ${data.claude}` : 'AI analysis: not connected'}</Badge>
         <Badge tone={data.sarvam ? 'good' : 'warn'}>{data.sarvam ? 'Speech-to-text: Sarvam connected' : 'Speech-to-text: not connected'}</Badge>
         {(!data.claude || !data.sarvam) && can(s, 'integrations.manage') && <Link href="/integrations" className="link text-xs">Connect on the Integrations page</Link>}
       </div>
       {!data.claude && (
         <Notice tone="warn" title="No AI provider connected">
-          Live interactions cannot be analysed until Claude is connected. Demo records are analysed by a clearly-labelled offline heuristic so the pipeline can be explored.
+          Live interactions cannot be analysed until Claude or Gemini is connected. Demo records are analysed by a clearly-labelled offline heuristic so the pipeline can be explored.
         </Notice>
       )}
 

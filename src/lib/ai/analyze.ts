@@ -11,13 +11,13 @@ import { computeSlaCandidates, type SlaCandidate } from './sla';
 import { heuristicAnalysis, HEURISTIC_MODEL, HEURISTIC_PROVIDER } from './heuristic';
 import { ANALYSIS_SYSTEM_PROMPT, ANALYSIS_TOOL_NAME, PROMPT_VERSION, buildAnalysisUserPrompt } from './prompts';
 import { loadOrgSettings } from './settings';
-import { findProviderConnection, type LoadedConnection } from './connections';
+import type { LoadedConnection } from './connections';
 import { PipelineError, ProviderError } from './errors';
-import { callClaudeTool, claudeConfigFrom } from '@/lib/providers/anthropic';
+import { callAiTool, findAiConnection } from './provider';
 
 /** Rules computed deterministically by the platform — never accepted from the model. */
 export const SYSTEM_RULES = new Set(['excessive_delay', 'sla_unresolved', 'repeated_critical_failures']);
-export const NO_AI_PROVIDER_MESSAGE = 'No AI analysis provider connected. Connect Claude on the Integrations page.';
+export const NO_AI_PROVIDER_MESSAGE = 'No AI analysis provider connected. Connect Claude or Gemini on the Integrations page.';
 
 export interface KbRow { article_id: string; version_id: string; slug: string; title: string; version: number; body: string; is_placeholder: boolean }
 export interface RuleRow { id: string; code: string; name: string; description: string; severity: string; min_confidence: number; channels: string[] }
@@ -142,10 +142,9 @@ export function buildClaudeAnalysisRequest(ctx: AnalysisContext) {
  */
 export async function runAnalyzer(ctx: AnalysisContext, conn: LoadedConnection | null, fetchImpl: typeof fetch = fetch): Promise<RawAnalysis> {
   if (conn) {
-    const cfg = claudeConfigFrom(conn.config, conn.secrets);
     const req = buildClaudeAnalysisRequest(ctx);
-    const { resp, input, strict } = await callClaudeTool(cfg, req, fetchImpl);
-    return { raw: input, provider: 'anthropic', model: resp.model || cfg.model, inputTokens: resp.usage.inputTokens, outputTokens: resp.usage.outputTokens, strict };
+    const { resp, input, strict, provider, model } = await callAiTool(conn, req, fetchImpl);
+    return { raw: input, provider, model, inputTokens: resp.usage.inputTokens, outputTokens: resp.usage.outputTokens, strict };
   }
   if (ctx.interaction.is_demo) {
     const vocab = vocabFor(ctx);
@@ -160,7 +159,7 @@ export async function runAnalyzer(ctx: AnalysisContext, conn: LoadedConnection |
 }
 
 export async function loadAiConnection(db: Db, orgId: string) {
-  return findProviderConnection(db, 'anthropic', orgId);
+  return findAiConnection(db, orgId);
 }
 
 // ───────────────────────── Validation & post-processing (pure) ─────────────────────────

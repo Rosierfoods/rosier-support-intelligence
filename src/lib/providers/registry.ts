@@ -12,6 +12,7 @@ import { gmailProvider } from './gmail';
 import { m365Provider } from './m365';
 import { sarvamProvider } from './sarvam';
 import { anthropicProvider } from './anthropic';
+import { geminiProvider } from './gemini';
 
 export const PROVIDERS: ProviderDefinition[] = [
   limechatProvider,
@@ -21,6 +22,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   m365Provider,
   sarvamProvider,
   anthropicProvider,
+  geminiProvider,
 ];
 
 const BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));

@@ -11,7 +11,7 @@ export interface LoadedConnection {
   secrets: Record<string, string>;
 }
 
-const LABELS: Record<string, string> = { anthropic: 'Claude (Anthropic)', sarvam: 'Sarvam speech-to-text' };
+const LABELS: Record<string, string> = { anthropic: 'Claude (Anthropic)', gemini: 'Google Gemini', sarvam: 'Sarvam speech-to-text' };
 
 /**
  * Load + decrypt an org's integration connection. Works in org context (RLS confines to app.org_id)

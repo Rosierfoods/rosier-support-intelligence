@@ -2,8 +2,7 @@
 // otherwise a deterministic template. Signature is a contract used by the coaching workstream — keep it stable.
 import { z } from 'zod';
 import type { Db } from '@/lib/db';
-import { findProviderConnection } from './connections';
-import { callClaudeTool, claudeConfigFrom } from '@/lib/providers/anthropic';
+import { callAiTool, findAiConnection } from './provider';
 import { COACHING_JSON_SCHEMA, COACHING_SYSTEM_PROMPT, COACHING_TOOL_NAME, buildCoachingUserPrompt } from './prompts';
 
 export interface CoachingDraft {
@@ -54,14 +53,14 @@ export async function draftCoachingFromFlag(db: Db, flagId: string): Promise<Coa
   };
 
   let conn;
-  try { conn = await findProviderConnection(db, 'anthropic', f.org_id); } catch { conn = null; }
+  try { conn = await findAiConnection(db, f.org_id); } catch { conn = null; }
   if (!conn) return template;
 
   // Only approved text: published (or superseded-but-referenced) versions; placeholders only for demo records.
   const kbOk = f.kb_body && f.kb_status !== 'draft' && (!f.kb_placeholder || f.interaction_is_demo);
   try {
-    const cfg = claudeConfigFrom(conn.config, conn.secrets);
-    const { input, resp } = await callClaudeTool({ ...cfg, maxTokens: Math.min(cfg.maxTokens, 2000), timeoutMs: Math.min(cfg.timeoutMs, 60_000) }, {
+    const { input, model: usedModel } = await callAiTool(conn, {
+      maxTokens: 2000, timeoutMs: 60_000,
       system: COACHING_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: buildCoachingUserPrompt({
         ruleName: f.rule_name ?? f.title, severity: f.severity, reason: f.reason, excerpt: f.excerpt, criterion: f.criterion_code,
@@ -79,10 +78,10 @@ export async function draftCoachingFromFlag(db: Db, flagId: string): Promise<Coa
       targetMetric: /^[a-z_]{2,60}$/.test(c.target_metric) ? c.target_metric : template.targetMetric,
       sopReference: kbOk ? template.sopReference : null,
       policyVersionId: kbOk ? template.policyVersionId : null,
-      generatedBy: resp.model || cfg.model,
+      generatedBy: usedModel,
     };
   } catch (e) {
-    console.warn(`[coaching] Claude draft failed, using template: ${(e as Error).message?.slice(0, 160)}`);
+    console.warn(`[coaching] AI draft failed, using template: ${(e as Error).message?.slice(0, 160)}`);
     return template;
   }
 }

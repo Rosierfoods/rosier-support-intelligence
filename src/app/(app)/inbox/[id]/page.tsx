@@ -199,6 +199,13 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
                   ) : (
                     <Notice tone="info" title="No transcript yet">{d.call?.recording_available ? 'The recording is queued for transcription.' : 'No authorised recording is available for this call, so it cannot be transcribed.'}</Notice>
                   )}
+                  {perms.play && d.call?.recording_available && !d.call.demo_recording && (
+                    <div className="rounded-lg border border-line bg-canvas p-3">
+                      <p className="mb-1.5 text-xs font-medium text-ink">Call recording</p>
+                      <audio controls preload="none" src={`/api/media/${i.id}`} className="w-full" aria-label="Call recording" />
+                      <p className="mt-1 text-2xs text-ink-faint">You can listen now — the transcript will appear here once it is ready. Playback is logged in the audit trail.</p>
+                    </div>
+                  )}
                   {perms.retry && d.call?.recording_available && (
                     <ActionForm action={retryProcessingAction} hidden={{ interactionId: i.id }}>
                       <SubmitButton variant="primary" pendingLabel="Queuing…"><RefreshCw size={13} /> Retry transcription</SubmitButton>

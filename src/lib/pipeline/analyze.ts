@@ -11,6 +11,7 @@ import {
 import { applyAlerts } from '@/lib/ai/alerts';
 import { HEURISTIC_PROVIDER } from '@/lib/ai/heuristic';
 import { noteConnectionError, type LoadedConnection } from '@/lib/ai/connections';
+import { aiModelName } from '@/lib/ai/provider';
 import { PipelineError, ProviderError, errorMessage } from '@/lib/ai/errors';
 
 export interface AnalyzeResult { status: 'completed' | 'requires_review'; score: number | null; flags: number; provider: string; model: string }
@@ -45,7 +46,7 @@ export async function runAnalyzeJob(job: Pick<Job, 'org_id' | 'interaction_id'>)
     });
   } catch (e) {
     const msg = errorMessage(e);
-    await markFailed(orgId, interactionId, msg, conn ? { provider: 'anthropic', model: String(conn.config.customModel || conn.config.model || 'claude') } : null);
+    await markFailed(orgId, interactionId, msg, conn ? { provider: conn.provider, model: aiModelName(conn) } : null);
     if (conn && e instanceof ProviderError && (e.status === 401 || e.status === 403)) await withOrg(orgId, (db) => noteConnectionError(db, conn!.id, msg));
     throw e;
   }
