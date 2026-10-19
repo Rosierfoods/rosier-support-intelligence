@@ -7,9 +7,9 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, 
 function key(): Buffer {
   const raw = process.env.SECRETS_ENCRYPTION_KEY;
   if (!raw) throw new Error('SECRETS_ENCRYPTION_KEY is not set (32 random bytes, base64). See .env.example.');
-  const k = Buffer.from(raw, 'base64');
-  if (k.length !== 32) throw new Error('SECRETS_ENCRYPTION_KEY must decode to exactly 32 bytes.');
-  return k;
+       const k = Buffer.from(raw.trim(), 'base64');
+     // Any other format (e.g. a host-generated random string): derive a 32-byte key from it.
+     return k.length === 32 ? k : createHash('sha256').update(raw.trim()).digest();
 }
 
 export function encryptString(plain: string): string {
