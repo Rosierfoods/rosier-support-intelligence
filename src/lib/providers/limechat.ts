@@ -7,7 +7,7 @@
  *    the Chatwoot Application API pattern:
  *    https://moengage.com/docs/partner-guide/support-and-service/conversational-messaging/limechat
  *  - Chatwoot API (the API LimeChat's account endpoints follow):
- *    List conversations  GET /api/v1/accounts/{account_id}/conversations?status=all&page=N
+ *    List conversations  GET /api/v1/accounts/{account_id}/conversations?status={open|pending|snoozed|resolved}&page=N
  *      → data.meta.*_count, data.payload[] {id, status, created_at, last_activity_at, inbox_id, meta.sender, meta.assignee, meta.channel}
  *      https://developers.chatwoot.com/api-reference/conversations/conversations-list
  *    Conversation messages GET /api/v1/accounts/{account_id}/conversations/{id}/messages[?before=<message id>]
@@ -136,13 +136,28 @@ async function fetchAllMessages(ctx: ProviderContext, convId: string): Promise<a
   return all;
 }
 
+/** LimeChat rejects status=all (HTTP 422), so conversations are listed once per status. */
+export const LIMECHAT_STATUSES = ['open', 'pending', 'snoozed', 'resolved'] as const;
+
+async function listConversations(ctx: ProviderContext, status: string, page: number, inbox?: string | null): Promise<{ convs: any[]; total?: number; ok: boolean }> {
+  const url = `${base(ctx)}/conversations?status=${status}&assignee_type=all&page=${page}${inbox ? `&inbox_id=${encodeURIComponent(inbox)}` : ''}`;
+  try {
+    const r = await httpJson<any>(url, { provider: 'LimeChat', headers: headers(ctx) });
+    const ok = !!r?.data && Array.isArray(r.data.payload);
+    return { convs: ok ? r.data.payload : [], total: r?.data?.meta?.all_count, ok };
+  } catch (e: any) {
+    if (e?.status === 422 || e?.status === 400) return { convs: [], ok: true }; // this status isn't supported on the account — skip it
+    throw e;
+  }
+}
+
 async function testConnection(ctx: ProviderContext) {
   if (!str(ctx.config.accountId)) return { ok: false, message: 'Account ID is required (the number in your LimeChat dashboard URL: /app/accounts/<id>/...).' };
   if (!ctx.secrets.apiAccessToken) return { ok: false, message: 'API access token is required.' };
   try {
-    const r = await httpJson<any>(`${base(ctx)}/conversations?status=all&page=1`, { provider: 'LimeChat', headers: headers(ctx) });
-    const total = r?.data?.meta?.all_count;
-    if (!r?.data || !Array.isArray(r.data.payload)) {
+    const r = await listConversations(ctx, 'open', 1, str(ctx.config.inboxId));
+    const total = r.total;
+    if (!r.ok) {
       return { ok: false, message: 'LimeChat responded, but not in the expected Chatwoot-compatible format. Check the base URL, or ask LimeChat support which API your account uses.' };
     }
     return { ok: true, message: `Connected to LimeChat account ${ctx.config.accountId}${total !== undefined ? ` · ${total} conversations visible` : ''}.` };
@@ -158,10 +173,9 @@ async function testConnection(ctx: ProviderContext) {
 async function fetchSince(ctx: ProviderContext, cp: Record<string, any>, opts: { from?: Date }): Promise<FetchResult> {
   const since = Number(cp.since ?? (opts.from ? Math.floor(opts.from.getTime() / 1000) : Math.floor(Date.now() / 1000) - 7 * 86400));
   const page = Number(cp.page ?? 1);
+  const si = Math.min(Math.max(0, Number(cp.si ?? 0)), LIMECHAT_STATUSES.length - 1);
   const inbox = str(ctx.config.inboxId);
-  const url = `${base(ctx)}/conversations?status=all&assignee_type=all&page=${page}${inbox ? `&inbox_id=${encodeURIComponent(inbox)}` : ''}`;
-  const r = await httpJson<any>(url, { provider: 'LimeChat', headers: headers(ctx) });
-  const convs: any[] = Array.isArray(r?.data?.payload) ? r.data.payload : [];
+  const { convs } = await listConversations(ctx, LIMECHAT_STATUSES[si], page, inbox);
   let high = Number(cp.high ?? since);
   let reachedOld = convs.length === 0;
   const records: NormalizedInteraction[] = [];
@@ -175,10 +189,12 @@ async function fetchSince(ctx: ProviderContext, cp: Record<string, any>, opts: {
     await sleep(150); // be gentle with the account's API rate limit
   }
   if (reachedOld || page >= 400) {
-    // Done: next run starts from the newest activity seen, with a 2-minute overlap (ingestion is idempotent).
+    // This status is done → next status from page 1; after the last one, next run starts from the newest activity seen
+    // (2-minute overlap; ingestion is idempotent).
+    if (si < LIMECHAT_STATUSES.length - 1) return { records, hasMore: true, checkpoint: { since, si: si + 1, page: 1, high } };
     return { records, hasMore: false, checkpoint: { since: Math.max(since, high - 120) } };
   }
-  return { records, hasMore: true, checkpoint: { since, page: page + 1, high } };
+  return { records, hasMore: true, checkpoint: { since, si, page: page + 1, high } };
 }
 
 function verify(ctx: ProviderContext, input: WebhookInput): boolean {
