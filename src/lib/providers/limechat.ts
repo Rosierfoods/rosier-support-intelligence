@@ -93,7 +93,9 @@ export function mapChatwootConversation(conv: any, messages: any[]): NormalizedI
   if (id === undefined || id === null) return null;
   const sender = conv.meta?.sender ?? conv.contact ?? {};
   const assignee = conv.meta?.assignee ?? null;
-  const channel = String(conv.meta?.channel ?? conv.channel ?? '').toLowerCase().includes('whatsapp') ? 'whatsapp' : 'chat';
+  const chName = String(conv.meta?.channel ?? conv.channel ?? conv.inbox?.channel_type ?? '').toLowerCase();
+  // LimeChat carries WhatsApp, email and website/Instagram chats in one place — route each to the right section.
+  const channel = chName.includes('whatsapp') ? 'whatsapp' : chName.includes('email') ? 'email' : 'chat';
   const msgs = messages.map(mapChatwootMessage).filter((m): m is NormalizedMessage => !!m).sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
   const created = toDate(conv.created_at) ?? toDate(conv.timestamp) ?? msgs[0]?.sentAt ?? new Date();
   const status = str(conv.status);
@@ -115,7 +117,16 @@ export function mapChatwootConversation(conv: any, messages: any[]): NormalizedI
     agent: assignee ? { externalId: assignee.id !== undefined ? String(assignee.id) : null, name: str(assignee.available_name ?? assignee.name), email: str(assignee.email) } : undefined,
     status,
     resolutionStatus: resolution,
-    messages: msgs,
+    ...(channel === 'email'
+      ? {
+          subject: str(conv.additional_attributes?.mail_subject ?? conv.meta?.mail_subject),
+          emails: msgs.filter((m) => m.senderType !== 'bot').map((m) => ({
+            externalId: m.externalId, senderType: m.senderType === 'customer' ? 'customer' as const : m.senderType === 'agent' ? 'agent' as const : 'system' as const,
+            subject: str(conv.additional_attributes?.mail_subject), from: m.senderType === 'customer' ? str(sender.email) : m.senderName,
+            sentAt: m.sentAt, bodyText: m.body, attachments: m.attachments,
+          })),
+        }
+      : { messages: msgs }),
   };
 }
 

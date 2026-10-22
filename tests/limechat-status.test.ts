@@ -44,3 +44,29 @@ describe('LimeChat without status=all', () => {
     expect(cp.since).toBeGreaterThan(0);
   });
 });
+
+import { mapChatwootConversation } from '@/lib/providers/limechat';
+
+describe('LimeChat channels', () => {
+  const msgs = [
+    { id: 11, content: 'My ghee jar leaked', message_type: 0, created_at: now - 100, sender: { type: 'contact' } },
+    { id: 12, content: 'Sorry! Replacement sent.', message_type: 1, created_at: now - 50, sender: { type: 'user', name: 'Neha' } },
+  ];
+  it('WhatsApp inbox → whatsapp', () => {
+    const r = mapChatwootConversation({ id: 5, meta: { channel: 'Channel::Whatsapp', sender: {} } }, msgs)!;
+    expect(r.channel).toBe('whatsapp');
+    expect(r.messages).toHaveLength(2);
+  });
+  it('Email inbox → email thread', () => {
+    const r = mapChatwootConversation({ id: 6, additional_attributes: { mail_subject: 'Leaking jar' }, meta: { channel: 'Channel::Email', sender: { email: 'a@b.com' } } }, msgs)!;
+    expect(r.channel).toBe('email');
+    expect(r.messages).toBeUndefined();
+    expect(r.emails?.map((e) => e.senderType)).toEqual(['customer', 'agent']);
+    expect(r.emails?.[0].from).toBe('a@b.com');
+    expect(r.subject).toBe('Leaking jar');
+  });
+  it('Website / Instagram → chat', () => {
+    expect(mapChatwootConversation({ id: 7, meta: { channel: 'Channel::WebWidget', sender: {} } }, msgs)!.channel).toBe('chat');
+    expect(mapChatwootConversation({ id: 8, meta: { channel: 'Channel::Instagram', sender: {} } }, msgs)!.channel).toBe('chat');
+  });
+});
