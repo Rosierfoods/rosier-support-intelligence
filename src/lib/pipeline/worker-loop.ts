@@ -6,8 +6,9 @@ import { hostname } from 'node:os';
 import { withSystem } from '@/lib/db';
 import { claimJobs, requeueStale, type Job } from './jobs';
 import { enqueueScheduledJobs, runClaimedJob } from './handlers';
-import { runOrderMatchingBatch } from '@/lib/orders/enrich';
+import { runOrderCandidateBackfill, runOrderMatchingBatch } from '@/lib/orders/enrich';
 import { runTicketBackfillBatch } from '@/lib/orders/tickets';
+import { runListenDigest } from '@/lib/pipeline/listen-digest';
 
 const g = globalThis as unknown as { __rsiWorkerStarted?: boolean };
 
@@ -39,6 +40,10 @@ export function startWorkerLoop(opts: { concurrency?: number; pollMs?: number } 
     catch (e) { log(`order matching error: ${(e as Error).message}`); }
     try { const n = await runTicketBackfillBatch(log); if (n) log(`tickets back-filled: ${n}`); }
     catch (e) { log(`ticket backfill error: ${(e as Error).message}`); }
+    try { const n = await runOrderCandidateBackfill(log); if (n) log(`order numbers scanned: ${n}`); }
+    catch (e) { log(`order scan error: ${(e as Error).message}`); }
+    try { const n = await runListenDigest(log); if (n) log(`listen digest sent: ${n}`); }
+    catch (e) { log(`listen digest error: ${(e as Error).message}`); }
   }
 
   async function loop() {

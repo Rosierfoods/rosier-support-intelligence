@@ -8,7 +8,7 @@ import { getCategories, getInteractionDetail, type FlagRow, type InteractionDeta
 import { listReviewers } from '@/lib/repos/flags';
 import { Badge, Card, CardBody, CardHeader, DemoBadge, KeyValue, Notice } from '@/components/ui';
 import { ChannelBadge, ProcessingBadge, ResolutionBadge } from '@/components/badges';
-import { fmtDateTime, fmtDuration, fmtMs, titleCase } from '@/lib/format';
+import { fmtDateTime, fmtDuration, fmtMs, relTime, titleCase } from '@/lib/format';
 import { CHANNEL_LABELS, OPEN_FLAG_STATUSES, PLATFORM_LABELS, PRODUCTS, type Channel } from '@/lib/constants';
 import { CallTranscript } from '@/components/interaction/CallTranscript';
 import { ChatThread, EmailThread } from '@/components/interaction/Threads';
@@ -22,6 +22,8 @@ import {
 import { DirectionBadge } from '@/components/interaction/InteractionListView';
 import { RESOLUTION_TYPE_LABELS, type ResolutionType } from '@/lib/orders/tickets';
 import { flagAction } from '../../quality/actions';
+import { markListenedAction } from '../../listen/actions';
+import { getListenScore } from '@/lib/repos/listen';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -67,10 +69,11 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
       d,
       reviewers: needsReviewers ? (await listReviewers(db)).map((r) => ({ id: r.id, name: r.name })) : [],
       categories: needsCats ? await getCategories(db) : [],
+      listen: s.permissions.has('reports.view') ? await getListenScore(db, s, params.id).catch(() => null) : null,
     };
   });
   if (!data) notFound();
-  const { d, reviewers, categories } = data;
+  const { d, reviewers, categories, listen } = data;
   const i = d.interaction;
   const channel = i.channel as Channel;
 
@@ -121,8 +124,7 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
         <div className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight text-ink">{i.order_ref ? <>Order {i.order_ref}{i.order_verified && <BadgeCheck size={18} className="ml-1 inline text-emerald-600" aria-label="Verified in Shopify" />}</> : i.ref}</h1>
-              {i.order_ref && <span className="text-xs text-ink-muted">{i.ref}</span>}
+              <h1 className="text-xl font-semibold tracking-tight text-ink">{i.order_ref ? <>Order {i.order_ref}{i.order_verified && <BadgeCheck size={18} className="ml-1 inline text-emerald-600" aria-label="Verified in Shopify" />}</> : 'No order ID yet'}</h1>
               <DirectionBadge direction={i.direction} channel={channel} />
               {i.is_demo && <DemoBadge />}
               <ChannelBadge channel={channel} platform={i.source_platform} />
@@ -137,8 +139,8 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
               ['Agent', i.agent_id ? <Link href={`/agents/${i.agent_id}`} className="link">{i.agent_name}</Link> : 'Unassigned'],
               ['Team', i.team_name ?? '—'],
               ['Customer', <span key="c">{i.customer.name ?? 'Unknown'}{(i.customer.phone || i.customer.email) && <span className="block text-2xs text-ink-muted">{[i.customer.phone, i.customer.email].filter(Boolean).join(' · ')}</span>}</span>],
-              ['Order', i.order_ref ? `${i.order_ref}${i.order_verified ? ' ✓ verified' : i.order_source === 'ai' ? ' (from conversation, unverified)' : i.order_source === 'manual' ? ' (entered manually)' : ''}` : 'Not found yet'],
-              ['Ticket', i.ticket_ref ? `${i.ticket_ref}${i.ticket_status ? ` (${i.ticket_status})` : ''}` : '—'],
+              ['Order', i.order_ref ? `${i.order_ref}${i.order_verified ? ' ✓ verified in Shopify' : i.order_source === 'ai' ? ' (said in conversation, not found in Shopify)' : i.order_source === 'manual' ? ' (entered manually)' : ''}` : 'Not found yet'],
+              ['Ticket', i.ticket_ref ? titleCase(i.ticket_status ?? 'open') : '—'],
               ['Source record ID', <span key="sr" className="break-all font-mono text-xs">{i.source_record_id}</span>],
               ['First response', fmtDuration(i.first_response_seconds)],
             ]} />
@@ -159,6 +161,26 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
         )}
       </Card>
 
+      {listen && (listen.level !== 'none' || listen.founder_reviewed_at) && (
+        <div className={`rounded-xl border px-4 py-3 ${listen.founder_reviewed_at ? 'border-emerald-200 bg-emerald-50' : listen.level === 'must' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">
+                {listen.founder_reviewed_at ? `Founder listened ${relTime(listen.founder_reviewed_at)}${listen.reviewed_by ? ` (${listen.reviewed_by})` : ''}`
+                  : listen.level === 'must' ? 'Founders: must listen to this' : 'Founders: worth listening to'}
+                <span className="ml-2 text-2xs font-normal text-ink-muted">priority {listen.score}</span>
+              </p>
+              {listen.reasons.length > 0 && <p className="mt-0.5 text-xs text-ink-muted">{listen.reasons.join(' · ')}</p>}
+              {listen.founder_note && <p className="mt-0.5 text-xs text-ink">Note: {listen.founder_note}</p>}
+            </div>
+            <ActionForm action={markListenedAction} hidden={{ interactionId: i.id, listened: listen.founder_reviewed_at ? '0' : '1' }} className="flex shrink-0 items-center gap-2">
+              {!listen.founder_reviewed_at && <input name="note" maxLength={1000} placeholder="Note (optional)" className="input h-8 w-48 text-xs" />}
+              <SubmitButton>{listen.founder_reviewed_at ? 'Undo' : 'Mark as listened'}</SubmitButton>
+            </ActionForm>
+          </div>
+        </div>
+      )}
+
       {selected && targetSeq === null && (
         <Notice tone="warn" title="Evidence location not found in the stored source">
           The alert’s excerpt is shown in the alert card: “{selected.excerpt}”. The original segment or message may not have been imported.
@@ -175,7 +197,7 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
                 ['Problem', i.ticket_problem ?? (i.ticket_category ?? '—')],
                 ['What the agent did', i.ticket_action ?? '—'],
                 ['Action type', i.ticket_resolution_type ? RESOLUTION_TYPE_LABELS[i.ticket_resolution_type as ResolutionType] ?? titleCase(i.ticket_resolution_type) : '—'],
-                ['Ticket', i.ticket_ref ? `${i.ticket_ref} · ${titleCase(i.ticket_status ?? 'open')}${i.ticket_priority ? ` · ${titleCase(i.ticket_priority)} priority` : ''}` : 'Created after AI analysis'],
+                ['Ticket', i.ticket_ref ? `${titleCase(i.ticket_status ?? 'open')}${i.ticket_priority ? ` · ${titleCase(i.ticket_priority)} priority` : ''}` : 'Created after AI analysis'],
               ]} />
               {i.order_details ? (
                 <div className="rounded-lg border border-line bg-canvas p-3 text-sm">

@@ -233,7 +233,7 @@ export async function getRecentReviewed(db: Db, s: Session, f: AgentFilters, age
   const b = new SqlBuilder();
   const conds = interactionConds(s, { ...f, agentId }, b, 'i');
   return db.query(
-    `SELECT i.id, i.ref, i.channel, i.occurred_at, i.quality_score, i.quality_band, i.review_status, i.resolution_status, i.subject, i.is_demo,
+    `SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.occurred_at, i.quality_score, i.quality_band, i.review_status, i.resolution_status, i.subject, i.is_demo,
             (SELECT c.name FROM interaction_issue_labels l JOIN issue_categories c ON c.id = coalesce(l.subcategory_id, l.category_id)
               WHERE l.interaction_id = i.id AND l.is_active ORDER BY l.is_primary DESC LIMIT 1) AS issue
        FROM interactions i ${whereOf([...conds, 'i.quality_score IS NOT NULL'])}
@@ -244,7 +244,7 @@ export async function getAgentFlags(db: Db, s: Session, f: AgentFilters, agentId
   const b = new SqlBuilder();
   const conds = interactionConds(s, { ...f, agentId: null }, b, 'i');
   return db.query(
-    `SELECT fl.id, fl.interaction_id, fl.severity, fl.status, fl.title, fl.rule_code, fl.created_at, fl.is_demo, i.ref, i.channel
+    `SELECT fl.id, fl.interaction_id, fl.severity, fl.status, fl.title, fl.rule_code, fl.created_at, fl.is_demo, coalesce(i.order_ref, 'No order ID') AS ref, i.channel
        FROM quality_flags fl JOIN interactions i ON i.id = fl.interaction_id
       ${whereOf([...conds, `fl.agent_id = ${b.p(agentId)}`])}
       ORDER BY CASE fl.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, fl.created_at DESC LIMIT ${limit}`, b.params);

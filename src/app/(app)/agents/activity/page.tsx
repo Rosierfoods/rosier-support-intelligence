@@ -17,6 +17,15 @@ const dayLabel = (d: string) => new Date(`${d}T12:00:00+05:30`).toLocaleDateStri
 
 function In({ n }: { n: number }) { return n ? <span className="font-medium text-red-700">{n}</span> : <span className="text-ink-faint">0</span>; }
 function Out({ n }: { n: number }) { return n ? <span className="font-medium text-emerald-700">{n}</span> : <span className="text-ink-faint">0</span>; }
+/** Which desk the agent works on, from their call mix. */
+function deskLabel(r: { calls_in: number; calls_out: number; chats: number; emails: number }) {
+  const calls = r.calls_in + r.calls_out;
+  const parts: string[] = [];
+  if (calls) parts.push(r.calls_in / calls >= 0.8 ? 'Incoming calls' : r.calls_out / calls >= 0.8 ? 'Outgoing calls' : 'Incoming + outgoing calls');
+  if (r.chats) parts.push('Chat / WhatsApp');
+  if (r.emails) parts.push('Email');
+  return parts.join(' · ');
+}
 function Num({ n }: { n: number }) { return n ? <>{n}</> : <span className="text-ink-faint">0</span>; }
 
 export default async function AgentActivityPage(props: { searchParams: Promise<SP> }) {
@@ -70,7 +79,8 @@ export default async function AgentActivityPage(props: { searchParams: Promise<S
             <TBody>
               {totals.map((r) => (
                 <tr key={r.agent_id ?? 'none'} className="hover:bg-brand-50/40">
-                  <td className="td font-medium">{r.agent_id ? <Link href={agentQ(r.agent_id)} className="hover:text-brand">{r.agent_name}</Link> : <span className="text-ink-muted">Unassigned (add agent mobile numbers in Team)</span>}</td>
+                  <td className="td font-medium">{r.agent_id ? <Link href={agentQ(r.agent_id)} className="hover:text-brand">{r.agent_name}</Link> : <Link href="/team?tab=agents" className="text-ink-muted hover:text-brand">Unassigned — match numbers in Team</Link>}
+                    <p className="text-2xs font-normal text-ink-faint">{deskLabel(r)}</p></td>
                   <td className="td tabular-nums">{r.days}</td>
                   <td className="td tabular-nums"><In n={r.calls_in} /></td>
                   <td className="td tabular-nums"><Out n={r.calls_out} /></td>

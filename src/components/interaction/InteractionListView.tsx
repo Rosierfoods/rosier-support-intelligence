@@ -93,7 +93,7 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
           <Table>
             <THead>
               <tr>
-                <th className="th">Order / ID</th>
+                <th className="th">Order ID</th>
                 <th className="th">Type</th>
                 <th className="th"><SortLink searchParams={searchParams} basePath={basePath} field="occurred_at" label="Date / channel" /></th>
                 <th className="th">Customer</th>
@@ -146,9 +146,8 @@ function Row({ r, showCall, variant }: { r: InteractionRow; showCall: boolean; v
             <Link href={href} className="inline-flex items-center gap-1 font-medium text-ink hover:text-brand" title={r.order_verified ? 'Order verified in Shopify' : r.order_source === 'ai' ? 'Order ID mentioned in the conversation (not yet verified)' : 'Order'}>
               {r.order_ref}{r.order_verified && <BadgeCheck size={13} className="text-emerald-600" aria-label="Verified in Shopify" />}
             </Link>
-            <p className="text-2xs text-ink-faint">{r.ref}</p>
           </>
-        ) : <Link href={href} className="font-medium text-ink hover:text-brand">{r.ref}</Link>}
+        ) : <Link href={href} className="text-ink-muted hover:text-brand" title="No order number found yet in Shopify or in the conversation — open to add one">No order ID</Link>}
         {r.is_demo && <div className="mt-0.5"><DemoBadge className="px-1 text-[10px]" /></div>}
       </td>
       <td className="td whitespace-nowrap"><DirectionBadge direction={r.direction} channel={r.channel} /></td>

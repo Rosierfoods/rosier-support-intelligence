@@ -7,7 +7,7 @@ import { buildXlsx, istDateStamp, searchParamsToSP, xlsxResponseHeaders, type XC
 
 export const dynamic = 'force-dynamic';
 
-const HEAD = ['Order ID', 'Order check', 'Ticket ID', 'Interaction ID', 'Opened (IST)', 'Channel', 'Incoming / outgoing', 'Call status', 'Call duration (s)',
+const HEAD = ['Order ID', 'Order check', 'Opened (IST)', 'Channel', 'Incoming / outgoing', 'Call status', 'Call duration (s)',
   'Customer name', 'Customer phone', 'Customer email', 'Agent', 'Issue category', 'Problem', 'What the agent did', 'Action type', 'Priority', 'Status',
   'Critical alerts', 'Quality score', 'Sentiment', 'AI summary', 'Closed (IST)', 'Edited by a person', 'Demo data'];
 
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const data: XCell[][] = [HEAD];
   for (const r of rows) {
     data.push([
-      r.order_ref, !r.order_ref ? '' : r.order_verified ? 'Verified in Shopify' : 'Not verified', r.external_id, r.interaction_ref, new Date(r.opened_at),
+      r.order_ref ?? 'No order ID', !r.order_ref ? '' : r.order_verified ? 'Verified in Shopify' : 'Not verified', new Date(r.opened_at),
       r.channel, r.direction ? (r.channel === 'call' ? (r.direction === 'outbound' ? 'Outgoing' : 'Incoming') : r.direction === 'outbound' ? 'Sent' : 'Received') : '',
       r.call_status, r.duration_seconds, r.customer_name, r.customer_phone, r.customer_email, r.agent_name ?? 'Unassigned', r.category, r.problem, r.action_taken,
       RESOLUTION_TYPE_LABELS[(r.resolution_type ?? 'none') as ResolutionType] ?? r.resolution_type, r.priority, TICKET_STATUS_LABELS[r.status] ?? r.status,

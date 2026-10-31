@@ -49,7 +49,7 @@ export async function globalSearch(db: Db, s: Session, f: SearchFilters, limit =
   baseConds(s, f, b);
   const tsq = b.p(f.q);
   const like = b.p(`%${escapeLike(f.q)}%`);
-  const ors = [`i.search_tsv @@ websearch_to_tsquery('simple', ${tsq})`, `i.search_text ILIKE ${like}`];
+  const ors = [`i.search_tsv @@ websearch_to_tsquery('simple', ${tsq})`, `i.search_text ILIKE ${like}`, `i.order_ref ILIKE ${like}`];
   const digits = f.q.replace(/\D/g, '');
   if (canPii) {
     const idc = [`cu.email ILIKE ${like}`, `cu.name ILIKE ${like}`];
@@ -60,7 +60,7 @@ export async function globalSearch(db: Db, s: Session, f: SearchFilters, limit =
   const from = `FROM interactions i LEFT JOIN customers cu ON cu.id = i.customer_id LEFT JOIN agents a ON a.id = i.agent_id`;
   const total = await db.one<{ n: number }>(`SELECT count(*)::int AS n ${from} ${b.whereSql()}`, b.params);
   const rows = await db.query(
-    `SELECT i.id, i.ref, i.channel, i.source_platform, i.source_record_id, i.occurred_at, i.is_demo, i.subject, a.name AS agent_name,
+    `SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.source_platform, i.source_record_id, i.occurred_at, i.is_demo, i.subject, a.name AS agent_name,
             i.quality_score, i.resolution_status, i.sentiment, cu.name AS cu_name, cu.phone AS cu_phone, cu.email AS cu_email,
             ts_rank(i.search_tsv, websearch_to_tsquery('simple', ${tsq})) AS rank,
             ts_headline('simple', left(i.search_text, 60000), websearch_to_tsquery('simple', ${tsq}), '${HEADLINE_OPTS}') AS snippet,
@@ -91,7 +91,7 @@ export async function globalSearch(db: Db, s: Session, f: SearchFilters, limit =
   const slike = sb.p(`%${escapeLike(f.q)}%`);
   sb.and(`(to_tsvector('simple', ts.text) @@ websearch_to_tsquery('simple', ${stsq}) OR ts.text ILIKE ${slike} OR coalesce(ts.text_en, '') ILIKE ${slike})`);
   const segments = await db.query<SegmentHit & { raw: string }>(
-    `SELECT * FROM (SELECT i.id AS interaction_id, i.ref, i.channel, i.is_demo, i.occurred_at, a.name AS agent_name, ts.seq, ts.speaker, ts.start_ms, ts.text AS raw,
+    `SELECT * FROM (SELECT i.id AS interaction_id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.is_demo, i.occurred_at, a.name AS agent_name, ts.seq, ts.speaker, ts.start_ms, ts.text AS raw,
             ts_rank(to_tsvector('simple', ts.text), websearch_to_tsquery('simple', ${stsq})) AS rank,
             row_number() OVER (PARTITION BY i.id ORDER BY ts_rank(to_tsvector('simple', ts.text), websearch_to_tsquery('simple', ${stsq})) DESC, ts.seq) AS rn,
             ts_headline('simple', ts.text, websearch_to_tsquery('simple', ${stsq}), '${HEADLINE_OPTS}') AS snippet
@@ -112,14 +112,14 @@ export async function globalSearch(db: Db, s: Session, f: SearchFilters, limit =
   const where = mb.whereSql();
   const messages = await db.query<MessageHit & { raw: string }>(
     `SELECT * FROM (SELECT x0.*, row_number() OVER (PARTITION BY kind, interaction_id ORDER BY rank DESC, seq) AS rn FROM (
-       SELECT i.id AS interaction_id, i.ref, i.channel, i.is_demo, i.occurred_at, a.name AS agent_name, m.seq, m.sender_type, m.sent_at,
+       SELECT i.id AS interaction_id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.is_demo, i.occurred_at, a.name AS agent_name, m.seq, m.sender_type, m.sent_at,
               NULL::text AS subject, 'message' AS kind, m.body AS raw,
               ts_headline('simple', m.body, websearch_to_tsquery('simple', ${mtsq}), '${HEADLINE_OPTS}') AS snippet,
               ts_rank(to_tsvector('simple', m.body), websearch_to_tsquery('simple', ${mtsq})) AS rank
          FROM conversation_messages m JOIN interactions i ON i.id = m.interaction_id LEFT JOIN agents a ON a.id = i.agent_id
          ${where} AND (to_tsvector('simple', m.body) @@ websearch_to_tsquery('simple', ${mtsq}) OR m.body ILIKE ${mlike})
        UNION ALL
-       SELECT i.id, i.ref, i.channel, i.is_demo, i.occurred_at, a.name, e.seq, e.sender_type, e.sent_at, e.subject, 'email', coalesce(e.subject, '') || ' — ' || e.body_text,
+       SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.is_demo, i.occurred_at, a.name, e.seq, e.sender_type, e.sent_at, e.subject, 'email', coalesce(e.subject, '') || ' — ' || e.body_text,
               ts_headline('simple', coalesce(e.subject, '') || ' — ' || e.body_text, websearch_to_tsquery('simple', ${mtsq}), '${HEADLINE_OPTS}'),
               ts_rank(to_tsvector('simple', coalesce(e.subject, '') || ' ' || e.body_text), websearch_to_tsquery('simple', ${mtsq}))
          FROM email_messages e JOIN interactions i ON i.id = e.interaction_id LEFT JOIN agents a ON a.id = i.agent_id

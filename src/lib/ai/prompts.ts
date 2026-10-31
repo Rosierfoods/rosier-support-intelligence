@@ -2,7 +2,7 @@
  * Prompt templates. Bump PROMPT_VERSION whenever wording/schema changes — it is stored on every ai_analyses row so
  * admins can reprocess older analyses after a model or policy change.
  */
-export const PROMPT_VERSION = 'rsi-analysis-2026-10-12.1';
+export const PROMPT_VERSION = 'rsi-analysis-2026-11-01.1';
 export const COACHING_PROMPT_VERSION = 'rsi-coaching-2026-10-12.1';
 export const ANALYSIS_TOOL_NAME = 'submit_analysis';
 export const COACHING_TOOL_NAME = 'submit_coaching';
@@ -34,7 +34,7 @@ Scoring:
 Issue classification:
 - Use only the category/subcategory codes provided. Multiple labels are allowed (e.g. leaking jar + replacement request + delivery damage). Mark exactly one as primary.
 - probable_root_cause is an INFERENCE: hedge it ("possibly…", "suspected…") and leave it "" when there is no supporting evidence. Never assume a leaking jar was caused by packaging, transport or manufacturing without evidence.
-- order_ref only if literally present in the conversation.
+- order_ref: the customer's order number whenever it is mentioned — typed, or spoken digit by digit in English, Hindi or Hinglish ("paanch chaar ek shunya paanch" → "54105", "५४१०५" → "54105"). Write it with digits (keep any letter prefix such as RF). Never guess or invent one; "" when no order number was said.
 
 Flags:
 - Use only the alert rule codes provided. Flags are potential concerns for human review, never disciplinary findings. Give a calibrated confidence (0–1) and a concrete recommended_correction.

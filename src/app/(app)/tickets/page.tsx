@@ -119,7 +119,7 @@ export default async function TicketsPage(props: { searchParams: Promise<SP> }) 
                         {r.order_ref ? <span className="inline-flex items-center gap-1">{r.order_ref}{r.order_verified && <BadgeCheck size={13} className="text-emerald-600" aria-label="Verified in Shopify" />}</span> : <span className="text-ink-muted">No order ID</span>}
                       </Link>
                     ) : <span className="font-medium">{r.order_ref ?? '—'}</span>}
-                    <p className="text-2xs text-ink-faint">{r.external_id ?? r.interaction_ref}{r.is_demo && <> · <DemoBadge /></>}</p>
+                    {r.is_demo && <p className="text-2xs"><DemoBadge /></p>}
                   </td>
                   <td className="td whitespace-nowrap text-xs">{fmtDateTime(r.opened_at)}</td>
                   <td className="td whitespace-nowrap">

@@ -32,6 +32,26 @@ export async function listAgentsAdmin(db: Db) {
        FROM agents a LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN users u ON u.id = a.user_id ORDER BY a.is_active DESC, a.name`);
 }
 
+/** Answered calls with no agent, grouped by what MyOperator told us about the agent side (number / names). */
+export async function listUnmatchedAgentSides(db: Db) {
+  const groups = await db.query<{ phone: string | null; hint: string | null; calls: number; incoming: number; outgoing: number; last_at: string }>(
+    `SELECT c.agent_phone AS phone, CASE WHEN c.agent_phone IS NULL THEN c.agent_hint END AS hint, count(*)::int AS calls,
+            count(*) FILTER (WHERE i.direction = 'inbound')::int AS incoming, count(*) FILTER (WHERE i.direction = 'outbound')::int AS outgoing,
+            max(i.occurred_at) AS last_at
+       FROM interactions i JOIN calls c ON c.interaction_id = i.id
+      WHERE i.agent_id IS NULL AND NOT i.is_demo AND c.call_status = 'answered' AND (c.agent_phone IS NOT NULL OR c.agent_hint IS NOT NULL)
+      GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 50`);
+  const hintsByPhone = await db.query<{ phone: string; hint: string }>(
+    `SELECT DISTINCT ON (c.agent_phone) c.agent_phone AS phone, c.agent_hint AS hint FROM calls c JOIN interactions i ON i.id = c.interaction_id
+      WHERE i.agent_id IS NULL AND c.agent_phone IS NOT NULL AND c.agent_hint IS NOT NULL ORDER BY c.agent_phone, c.created_at DESC`);
+  const hm = new Map(hintsByPhone.map((h) => [h.phone, h.hint]));
+  const other = await db.one<{ calls: number; chats: number }>(
+    `SELECT count(*) FILTER (WHERE i.channel = 'call' AND c.call_status = 'answered' AND c.agent_phone IS NULL AND c.agent_hint IS NULL)::int AS calls,
+            count(*) FILTER (WHERE i.channel <> 'call')::int AS chats
+       FROM interactions i LEFT JOIN calls c ON c.interaction_id = i.id WHERE i.agent_id IS NULL AND NOT i.is_demo`);
+  return { groups: groups.map((g) => ({ ...g, hint: g.hint ?? (g.phone ? hm.get(g.phone) ?? null : null) })), noInfoCalls: other?.calls ?? 0, unassignedChats: other?.chats ?? 0 };
+}
+
 export async function getRoleOverrides(db: Db) {
   return db.query<{ role: string; permission: string; allowed: boolean; updated_at: string; updated_by_name: string | null }>(
     `SELECT rp.role, rp.permission, rp.allowed, rp.updated_at, u.name AS updated_by_name FROM role_permissions rp LEFT JOIN users u ON u.id = rp.updated_by`);

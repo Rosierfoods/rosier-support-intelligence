@@ -13,6 +13,7 @@ import { HEURISTIC_PROVIDER } from '@/lib/ai/heuristic';
 import { noteConnectionError, type LoadedConnection } from '@/lib/ai/connections';
 import { aiModelName } from '@/lib/ai/provider';
 import { upsertAutoTicket } from '@/lib/orders/tickets';
+import { extractOrderCandidates } from '@/lib/orders/extract';
 import { PipelineError, ProviderError, errorMessage } from '@/lib/ai/errors';
 
 export interface AnalyzeResult { status: 'completed' | 'requires_review'; score: number | null; flags: number; provider: string; model: string }
@@ -147,6 +148,9 @@ export async function persistAnalysis(db: Db, ctx: AnalysisContext, raw: RawAnal
       : [i.id, status, needsReview ? reviewReason(out, minConf) : null, out.sentiment, out.summary || null, out.customer_intent || null, product, overall, band]);
   // Order mentioned in the conversation (AI) — verified against Shopify by the background order matcher.
   const aiOrder = pp.labels.map((l) => (l.order_ref ?? '').trim()).find((r) => r.length >= 3 && r.length <= 40) ?? null;
+  // Every order number heard/typed in the conversation — verified one by one against Shopify by the order matcher.
+  const candidates = extractOrderCandidates(ctx.conversation.text).filter((c) => !aiOrder || c.toLowerCase() !== aiOrder.toLowerCase());
+  await db.exec(`UPDATE interactions SET order_candidates = $2 WHERE id = $1`, [i.id, candidates]);
   await db.exec(
     `UPDATE interactions SET order_checked_at = NULL,
        order_ref = CASE WHEN order_source IS NULL OR order_source IN ('ai','shopify') THEN coalesce($2, order_ref) ELSE order_ref END,

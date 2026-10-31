@@ -110,7 +110,7 @@ export function analysisJsonSchema(v: SchemaVocab): Record<string, unknown> {
       product: S(), variant: S(), customer_reason: S(), agent_reason: S(),
       severity: enumOf([...SEVERITIES]),
       resolution_requested: S(), resolution_provided: S(),
-      order_ref: S('Only if literally present in the conversation, else ""'),
+      order_ref: S('Order number the customer said or typed (spoken digits converted to digits, e.g. "54105"); never invented; "" if none'),
       probable_root_cause: S('INFERENCE ONLY, clearly hedged; "" when there is no supporting evidence'),
       confidence: { type: 'number', description: '0–1' },
       evidence_id: EV,

@@ -288,6 +288,36 @@ export async function rematchAgents(_: ActionResult, _fd: FormData): Promise<Act
   } catch (e) { return fail(e); }
 }
 
+/** Assign an unmatched MyOperator number (or agent text) to an agent: the number is saved on the agent, so future calls match too. */
+export async function assignUnmatched(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  try {
+    const s = await guard();
+    const v = z.object({
+      agentId: z.string().uuid({ message: 'Choose an agent.' }),
+      phone: z.string().trim().max(20).optional().transform((x) => normalisePhone(x || null)),
+      hint: z.string().trim().max(300).optional().transform((x) => x || null),
+    }).parse(Object.fromEntries(fd));
+    if (!v.phone && !v.hint) return { ok: false, error: 'Nothing to assign.' };
+    const n = await withOrg(s.org.id, async (db) => {
+      let n = 0;
+      if (v.phone) {
+        const clash = await db.one<{ name: string }>(`SELECT name FROM agents WHERE $1 = ANY(phone_numbers) AND id <> $2 LIMIT 1`, [v.phone, v.agentId]);
+        if (clash) throw new Error(`+${v.phone} is already saved on ${clash.name}. Remove it there first.`);
+        await db.exec(`UPDATE agents SET phone_numbers = array_append(phone_numbers, $2) WHERE id = $1 AND NOT ($2 = ANY(phone_numbers))`, [v.agentId, v.phone]);
+        n = await rematchAgentsByPhone(db);
+      } else {
+        n = await db.exec(
+          `UPDATE interactions i SET agent_id = a.id, team_id = a.team_id FROM calls c, agents a
+            WHERE c.interaction_id = i.id AND a.id = $1 AND i.agent_id IS NULL AND c.agent_phone IS NULL AND c.agent_hint = $2`, [v.agentId, v.hint]);
+      }
+      await auditAction(db, s, 'agent.assign_unmatched', 'agent', v.agentId, { phone: !!v.phone, updated: n });
+      return n;
+    });
+    revalidatePath('/team');
+    return { ok: true, message: `${n} call(s) assigned.${v.phone ? ' Future calls from this number will be assigned automatically.' : ''}` };
+  } catch (e) { return fail(e); }
+}
+
 // ───────────────────────── Role permission overrides ─────────────────────────
 export async function saveRolePermissions(_: ActionResult, fd: FormData): Promise<ActionResult> {
   try {

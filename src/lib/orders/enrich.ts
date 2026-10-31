@@ -9,6 +9,7 @@ import { withOrg, withSystem, type Db } from '@/lib/db';
 import { findProviderConnection } from '@/lib/ai/connections';
 import { errorMessage } from '@/lib/ai/errors';
 import { normalisePhone } from '@/lib/crypto';
+import { extractOrderCandidates } from './extract';
 import { findCustomerByPhone, findOrderByName, shopifyConfigFrom, type ShopifyConfig, type ShopifyOrder } from '@/lib/providers/shopify';
 
 const BATCH = 15;
@@ -16,6 +17,7 @@ const BATCH = 15;
 interface Pending {
   id: string; org_id: string; channel: string; occurred_at: Date; order_ref: string | null; order_source: string | null;
   customer_id: string | null; customer_phone: string | null; customer_name: string | null; ticket_id: string | null;
+  order_candidates?: string[] | null;
 }
 
 function orderSnapshot(o: ShopifyOrder) {
@@ -46,6 +48,14 @@ export async function enrichInteraction(db: Db, cfg: ShopifyConfig | null, p: Pe
       const o = await findOrderByName(cfg, orderRef);
       if (o) { orderRef = o.name; verified = true; details = orderSnapshot(o); customerName = o.customerName; }
     }
+    // 1b) Other order numbers heard / typed in the conversation (customer calling from an unregistered number).
+    if (!verified && source !== 'manual') {
+      for (const cand of (p.order_candidates ?? []).slice(0, 4)) {
+        if (orderRef && cand.toLowerCase() === orderRef.toLowerCase()) continue;
+        const o = await findOrderByName(cfg, cand);
+        if (o) { orderRef = o.name; source = 'ai'; verified = true; details = { ...orderSnapshot(o), matched_by: 'conversation' }; customerName = o.customerName; break; }
+      }
+    }
     // 2) phone → customer → latest order (only when no verified order yet)
     const phone = normalisePhone(p.customer_phone);
     if (phone && (!verified || !p.customer_name)) {
@@ -60,6 +70,9 @@ export async function enrichInteraction(db: Db, cfg: ShopifyConfig | null, p: Pe
       }
     }
   }
+
+  // Shopify couldn't confirm any of them, but the customer clearly said an order number → still show it (marked unverified).
+  if (!orderRef && (p.order_candidates ?? []).length) { orderRef = p.order_candidates![0]; source = 'ai'; }
 
   await db.exec(
     `UPDATE interactions SET order_ref = $2, order_source = $3, order_verified = $4, order_details = coalesce($5::jsonb, order_details), order_checked_at = now()
@@ -93,7 +106,7 @@ export async function runOrderMatchingBatch(log: (m: string) => void = () => {})
         }
         // Wait for AI analysis to finish (so the conversation's own order id is used first), except where none will run.
         const rows = await db.query<Pending>(
-          `SELECT i.id, i.org_id, i.channel, i.occurred_at, i.order_ref, i.order_source, i.customer_id, i.ticket_id,
+          `SELECT i.id, i.org_id, i.channel, i.occurred_at, i.order_ref, i.order_source, i.customer_id, i.ticket_id, i.order_candidates,
                   cu.phone AS customer_phone, cu.name AS customer_name
              FROM interactions i
              LEFT JOIN customers cu ON cu.id = i.customer_id
@@ -116,6 +129,41 @@ export async function runOrderMatchingBatch(log: (m: string) => void = () => {})
         return n;
       });
     } catch (e) { log(`order matching error: ${errorMessage(e).slice(0, 160)}`); }
+  }
+  return done;
+}
+
+/**
+ * Back-fill for conversations analysed before order-number detection existed: scan the transcript / messages for order
+ * numbers and queue them for Shopify verification.
+ */
+export async function runOrderCandidateBackfill(log: (m: string) => void = () => {}, batch = 100): Promise<number> {
+  const orgs = await withSystem((db) => db.query<{ id: string }>(`SELECT id FROM organizations LIMIT 50`));
+  let done = 0;
+  for (const { id: orgId } of orgs) {
+    try {
+      done += await withOrg(orgId, async (db) => {
+        const rows = await db.query<{ id: string; order_verified: boolean; order_source: string | null; text: string | null }>(
+          `SELECT i.id, i.order_verified, i.order_source,
+                  coalesce(
+                    (SELECT string_agg(s.text || coalesce(' ' || s.text_en, ''), ' ' ORDER BY s.seq) FROM transcript_segments s
+                       JOIN call_transcripts t ON t.id = s.transcript_id AND t.is_current WHERE s.interaction_id = i.id),
+                    (SELECT string_agg(m.body, ' ' ORDER BY m.seq) FROM conversation_messages m WHERE m.interaction_id = i.id),
+                    (SELECT string_agg(coalesce(e.subject, '') || ' ' || e.body_text, ' ' ORDER BY e.seq) FROM email_messages e WHERE e.interaction_id = i.id)
+                  ) AS text
+             FROM interactions i
+            WHERE i.order_candidates IS NULL AND i.processing_status IN ('completed','requires_review')
+            ORDER BY i.occurred_at DESC LIMIT ${Math.max(1, Math.min(500, batch))}`);
+        for (const r of rows) {
+          const c = extractOrderCandidates(r.text ?? '');
+          await db.exec(
+            `UPDATE interactions SET order_candidates = $2,
+               order_checked_at = CASE WHEN cardinality($2::text[]) > 0 AND NOT order_verified AND coalesce(order_source, '') <> 'manual' THEN NULL ELSE order_checked_at END
+              WHERE id = $1`, [r.id, c]);
+        }
+        return rows.length;
+      });
+    } catch (e) { log(`order candidate backfill failed for org ${orgId}: ${errorMessage(e).slice(0, 160)}`); }
   }
   return done;
 }

@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 const PRESETS: Record<string, Channel[]> = { call: ['call'], chat: ['chat', 'whatsapp'], email: ['email'] };
 
 const COLUMNS: [string, string][] = [
-  ['order_ref', 'Order ID'], ['order_status', 'Order check'], ['ref', 'Interaction ID'], ['occurred_at', 'Date/time (IST)'],
+  ['order_ref', 'Order ID'], ['order_status', 'Order check'], ['occurred_at', 'Date/time (IST)'],
   ['channel', 'Channel'], ['direction', 'Incoming / outgoing'], ['source_platform', 'Source platform'],
   ['customer_name', 'Customer name'], ['customer_phone', 'Customer phone'], ['customer_email', 'Customer email'],
   ['agent_name', 'Agent'], ['team_name', 'Team'], ['call_status', 'Call status'], ['duration_seconds', 'Call duration (s)'],
@@ -22,7 +22,7 @@ const COLUMNS: [string, string][] = [
   ['quality_score', 'Quality score'], ['quality_band', 'Quality band'], ['detected_errors', 'Alerts / detected errors'],
   ['recommended_improvement', 'Recommended improvement'], ['first_response_seconds', 'First response (s)'],
   ['resolution_seconds', 'Resolution time (s)'], ['resolution_status', 'Resolution status'], ['subject', 'Subject'],
-  ['review_status', 'Review status'], ['processing_status', 'Processing status'], ['source_record_id', 'Source record ID'], ['is_demo', 'Demo data'],
+  ['review_status', 'Review status'], ['processing_status', 'Processing status'], ['source_record_id', 'Source record ID'], ['ref', 'Internal ref'], ['is_demo', 'Demo data'],
 ];
 
 function value(r: Record<string, any>, k: string): XCell {

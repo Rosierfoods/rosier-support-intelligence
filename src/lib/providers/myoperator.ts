@@ -181,12 +181,22 @@ function mapSearchDoc(d: any): NormalizedInteraction | null {
   const duration = toSeconds(d.duration) ?? (endedAt ? Math.max(0, Math.round((endedAt.getTime() - occurredAt.getTime()) / 1000)) : null);
   const legs: any[] = Array.isArray(d.log_details) ? d.log_details : [];
   const pickAgent = (l: any) => {
-    const r = Array.isArray(l?.received_by) ? l.received_by[0] : l?.received_by ?? l?.agent ?? l?._rr ?? null;
-    if (!r || typeof r !== 'object') return null;
-    return { id: str(r.id ?? r._id ?? r.uuid), name: str(r.name ?? r._na), email: str(r.email ?? r._em), contact: str(r.contact ?? r._ct) };
+    const raw = Array.isArray(l?.received_by) ? l.received_by[0] : l?.received_by ?? l?.agent ?? l?._rr ?? l?.user ?? l?.answered_by ?? l?.dialed_by ?? null;
+    const r = raw && typeof raw === 'object' ? raw : {};
+    const out = {
+      id: str(r.id ?? r._id ?? r.uuid ?? r.user_id ?? l?.agent_id ?? l?.user_id),
+      name: str(r.name ?? r._na ?? r.user_name ?? l?.agent_name ?? l?.user_name ?? l?.received_by_name ?? (typeof raw === 'string' && !/\d{6,}/.test(raw) ? raw : null)),
+      email: str(r.email ?? r._em ?? l?.agent_email ?? l?.user_email),
+      contact: str(r.contact ?? r._ct ?? r.number ?? r.phone ?? l?.agent_contact ?? l?.agent_number ?? l?.user_contact ?? l?.received_by_number ?? (typeof raw === 'string' && /\d{8,}/.test(raw) ? raw : null)),
+    };
+    return out.id || out.name || out.email || out.contact ? out : null;
   };
+  // The agent who actually talked: a leg with talk time first, then any leg that reached an agent, then top-level fields.
   const leg = legs.find((l) => pickAgent(l) && (toSeconds(l?.duration ?? l?._dr) ?? 0) > 0) ?? legs.find((l) => pickAgent(l)) ?? null;
-  const agent = leg ? pickAgent(leg) : null;
+  const agent = (leg ? pickAgent(leg) : null) ?? pickAgent({
+    agent_id: d.agent_id ?? d.user_id, agent_name: d.agent_name ?? d.user_name ?? d.received_by_name, agent_email: d.agent_email ?? d.user_email,
+    agent_contact: d.agent_number ?? d.agent_contact ?? d.user_number ?? d.user_contact ?? d.received_by_number,
+  });
   const caller = str(d.caller_number) ?? str(d.caller_number_raw);
   // No agent object: fall back to any agent-side number on the call legs (matched to agents by their mobile number).
   const agentPhone = agent?.contact ?? firstLegNumber(legs, caller);
@@ -207,8 +217,33 @@ function mapSearchDoc(d: any): NormalizedInteraction | null {
       fromNumber: direction === 'inbound' ? caller : agentPhone ?? null,
       toNumber: direction === 'inbound' ? agentPhone ?? null : caller,
       recordingRef: str(d.filename) ? `myoperator-file:${str(d.filename)}` : httpUrl(d.fileurl),
+      agentHint: agentHintFrom(d, legs, caller),
     },
   };
+}
+
+/** Compact text of every agent-side name / number MyOperator sent (for one-click mapping when no agent matched). */
+export function agentHintFrom(d: any, legs: any[], customer: string | null): string | null {
+  const cust = (customer ?? '').replace(/\D/g, '').slice(-10);
+  const seen = new Set<string>();
+  const KEY = /(agent|user|received|answer|dial|extension|_na|_ct|^name$|contact|number|department)/i;
+  const SKIP = /(caller|customer|allcaller|_cl|_cr|unique|file|url|time|duration|status|type|id$)/i;
+  const visit = (o: any, depth: number) => {
+    if (!o || typeof o !== 'object' || depth > 3) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (v && typeof v === 'object') { visit(v, depth + 1); continue; }
+      if (!KEY.test(k) || SKIP.test(k)) continue;
+      const sv = str(v);
+      if (!sv || sv.length > 60) continue;
+      const digits = sv.replace(/\D/g, '');
+      if (digits.length >= 10 && digits.slice(-10) === cust) continue;
+      seen.add(sv);
+    }
+  };
+  for (const l of legs) visit(l, 0);
+  visit({ agent_name: d.agent_name, user_name: d.user_name, agent_number: d.agent_number, department: d.department_name }, 0);
+  const out = Array.from(seen).slice(0, 6).join(' · ');
+  return out || null;
 }
 
 /** Accepts any of the documented MyOperator call-log shapes. Pure. */

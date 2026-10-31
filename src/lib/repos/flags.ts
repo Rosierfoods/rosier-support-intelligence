@@ -66,7 +66,7 @@ export async function listFlags(db: Db, s: Session, f: FlagFilters, page: { page
   const from = `FROM quality_flags f JOIN interactions i ON i.id = f.interaction_id`;
   const total = await db.one<{ n: number }>(`SELECT count(*)::int AS n ${from} ${b.whereSql()}`, b.params);
   const rows = await db.query<QueueFlag>(
-    `SELECT f.id, f.interaction_id, i.ref, i.channel, i.source_platform, i.occurred_at, f.severity, f.rule_code, ar.name AS rule_name,
+    `SELECT f.id, f.interaction_id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.source_platform, i.occurred_at, f.severity, f.rule_code, ar.name AS rule_name,
             f.title, f.reason, f.excerpt, f.evidence_ref, f.confidence, f.status, f.escalated, f.assigned_to, u.name AS assignee_name,
             f.agent_id, a.name AS agent_name, f.created_at, f.is_demo, qc.name AS criterion_name, f.recommended_correction,
             (SELECT c.name || coalesce(' › ' || sc.name, '') FROM interaction_issue_labels l JOIN issue_categories c ON c.id = l.category_id
@@ -157,7 +157,7 @@ async function getScopedFlag(db: Db, s: Session, flagId: string): Promise<FlagSt
   b.and(`f.id = ${b.p(flagId)}`);
   b.and(scopeInteractions(s, b, 'i'));
   const row = await db.one<FlagState>(
-    `SELECT f.id, f.interaction_id, i.ref, f.title, f.severity, f.status, f.assigned_to, f.escalated, f.agent_id
+    `SELECT f.id, f.interaction_id, coalesce(i.order_ref, 'No order ID') AS ref, f.title, f.severity, f.status, f.assigned_to, f.escalated, f.agent_id
        FROM quality_flags f JOIN interactions i ON i.id = f.interaction_id ${b.whereSql()} FOR UPDATE OF f`, b.params);
   if (!row) throw new ReviewError('Alert not found or outside your data scope.');
   return row;

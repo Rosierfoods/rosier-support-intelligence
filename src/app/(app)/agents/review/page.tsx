@@ -117,12 +117,12 @@ export default async function AgentReviewPage(props: { searchParams: Promise<SP>
           subtitle="Newest first; unreviewed on top. Managers and admins also get an in-app notification (and email, if enabled in Settings) the moment one is raised." />
         {alerts.length === 0 ? <p className="px-4 pb-4 text-sm text-ink-muted">No critical alerts in this period.</p> : (
           <Table>
-            <THead><tr><th className="th">When</th><th className="th">Order / ID</th><th className="th">Agent</th><th className="th">Alert</th><th className="th">Status</th></tr></THead>
+            <THead><tr><th className="th">When</th><th className="th">Order ID</th><th className="th">Agent</th><th className="th">Alert</th><th className="th">Status</th></tr></THead>
             <TBody>
               {alerts.map((a) => (
                 <tr key={a.id} className="hover:bg-brand-50/40">
                   <td className="td whitespace-nowrap text-xs">{fmtDateTime(a.created_at)}</td>
-                  <td className="td"><Link href={`/inbox/${a.interaction_id}?flag=${a.id}#evidence`} className="font-medium hover:text-brand">{a.order_ref ?? a.ref}</Link>{a.order_ref && <p className="text-2xs text-ink-faint">{a.ref}</p>}</td>
+                  <td className="td"><Link href={`/inbox/${a.interaction_id}?flag=${a.id}#evidence`} className="font-medium hover:text-brand">{a.order_ref ?? 'No order ID'}</Link></td>
                   <td className="td">{a.agent_name ?? <span className="text-ink-faint">Unassigned</span>}</td>
                   <td className="td text-sm">{a.title}</td>
                   <td className="td"><Badge tone={a.status === 'new' || a.status === 'under_review' ? 'bad' : 'muted'}>{titleCase(a.status.replace(/_/g, ' '))}</Badge></td>

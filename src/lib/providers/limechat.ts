@@ -92,7 +92,9 @@ export function mapChatwootConversation(conv: any, messages: any[]): NormalizedI
   const id = conv?.display_id ?? conv?.id; // display_id is the account-scoped id used in API URLs
   if (id === undefined || id === null) return null;
   const sender = conv.meta?.sender ?? conv.contact ?? {};
-  const assignee = conv.meta?.assignee ?? null;
+  // Assigned agent; if none (e.g. bot handed over without assigning), the last person who actually replied.
+  const lastAgentSender = [...messages].reverse().find((m) => senderTypeOf(m) === 'agent' && m?.sender && typeof m.sender === 'object')?.sender ?? null;
+  const assignee = conv.meta?.assignee ?? conv.assignee ?? lastAgentSender ?? null;
   const chName = String(conv.meta?.channel ?? conv.channel ?? conv.inbox?.channel_type ?? '').toLowerCase();
   // LimeChat carries WhatsApp, email and website/Instagram chats in one place — route each to the right section.
   const channel = chName.includes('whatsapp') ? 'whatsapp' : chName.includes('email') ? 'email' : 'chat';

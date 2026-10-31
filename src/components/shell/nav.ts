@@ -4,6 +4,7 @@ export interface NavItem { href: string; label: string; icon: string; perm?: Per
 
 export const NAV: NavItem[] = [
   { group: 'Monitor', href: '/', label: 'Overview Dashboard', icon: 'LayoutDashboard', perm: 'dashboard.view' },
+  { group: 'Monitor', href: '/listen', label: 'Calls to Listen (Founders)', icon: 'Headphones', perm: 'reports.view' },
   { group: 'Monitor', href: '/inbox', label: 'Unified Inbox', icon: 'Inbox', perm: 'interactions.view' },
   { group: 'Monitor', href: '/calls', label: 'Calls & Transcriptions', icon: 'Phone', perm: 'interactions.view' },
   { group: 'Monitor', href: '/chats', label: 'Chat & WhatsApp', icon: 'MessageCircle', perm: 'interactions.view' },

@@ -5,13 +5,13 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import {
   BookOpen, FileBarChart, GraduationCap, Inbox, LayoutDashboard, Mail, Menu, MessageCircle, Phone, PieChart, Plug,
-  Ticket, CalendarDays, ClipboardCheck, ScrollText, Settings, ShieldAlert, Sparkles, UserCog, Users, X, type LucideIcon,
+  Ticket, CalendarDays, ClipboardCheck, Headphones, ScrollText, Settings, ShieldAlert, Sparkles, UserCog, Users, X, type LucideIcon,
 } from 'lucide-react';
 import type { NavItem } from './nav';
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Inbox, Phone, MessageCircle, Mail, ShieldAlert, PieChart, Users, GraduationCap, FileBarChart, Plug, Sparkles, BookOpen,
-  UserCog, ScrollText, Settings, Ticket, CalendarDays, ClipboardCheck,
+  UserCog, ScrollText, Settings, Ticket, CalendarDays, ClipboardCheck, Headphones,
 };
 
 export function Sidebar({ items, orgName }: { items: (NavItem & { displayLabel: string })[]; orgName: string }) {

@@ -282,8 +282,8 @@ async function ingestCall(db: Db, orgId: string, interactionId: string, rec: Nor
   const before = await db.one<{ recording_source_ref: string | null; call_status: string }>('SELECT recording_source_ref, call_status FROM calls WHERE interaction_id = $1', [interactionId]);
   await db.exec(
     `INSERT INTO calls (org_id, interaction_id, call_status, duration_seconds, ring_seconds, from_number_masked, to_number_masked,
-                        recording_available, recording_source_ref, language_hint, agent_phone)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                        recording_available, recording_source_ref, language_hint, agent_phone, agent_hint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (interaction_id) DO UPDATE SET
        call_status = EXCLUDED.call_status,
        duration_seconds = coalesce(EXCLUDED.duration_seconds, calls.duration_seconds),
@@ -293,9 +293,11 @@ async function ingestCall(db: Db, orgId: string, interactionId: string, rec: Nor
        recording_available = calls.recording_available OR EXCLUDED.recording_available,
        recording_source_ref = coalesce(EXCLUDED.recording_source_ref, calls.recording_source_ref),
        language_hint = coalesce(EXCLUDED.language_hint, calls.language_hint),
-       agent_phone = coalesce(EXCLUDED.agent_phone, calls.agent_phone)`,
+       agent_phone = coalesce(EXCLUDED.agent_phone, calls.agent_phone),
+       agent_hint = coalesce(EXCLUDED.agent_hint, calls.agent_hint)`,
     [orgId, interactionId, c.status, c.durationSeconds ?? null, c.ringSeconds ?? null,
-      c.fromNumber ? maskPhone(c.fromNumber) : null, c.toNumber ? maskPhone(c.toNumber) : null, available, ref, c.languageHint ?? null, agentPhone]);
+      c.fromNumber ? maskPhone(c.fromNumber) : null, c.toNumber ? maskPhone(c.toNumber) : null, available, ref, c.languageHint ?? null, agentPhone,
+      (c.agentHint || [rec.agent?.name, rec.agent?.phone, rec.agent?.email].filter(Boolean).join(' · ') || null)?.slice(0, 300) ?? null]);
   // New content for the pipeline: first time we see the call, or a recording arrived later.
   return !before || (!!ref && before.recording_source_ref !== ref) || before.call_status !== c.status;
 }

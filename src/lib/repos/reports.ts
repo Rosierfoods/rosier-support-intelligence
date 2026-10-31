@@ -64,7 +64,7 @@ async function dailyCrm(db: Db, s: Session, f: AFilters): Promise<ReportResult> 
        FROM base LEFT JOIN calls c ON c.interaction_id = base.id GROUP BY 1 ORDER BY 1 DESC`, b.params);
   const b2 = new SqlBuilder();
   const alerts = await db.query(
-    `SELECT fl.id, fl.interaction_id, i.ref, fl.title, fl.severity, fl.status, a.name AS agent, fl.created_at
+    `SELECT fl.id, fl.interaction_id, coalesce(i.order_ref, 'No order ID') AS ref, fl.title, fl.severity, fl.status, a.name AS agent, fl.created_at
        FROM quality_flags fl JOIN interactions i ON i.id = fl.interaction_id LEFT JOIN agents a ON a.id = fl.agent_id
       ${whereOf([...interactionConds(s, noSev(f), b2), ...flagSeverity(f, b2), `fl.severity IN ('critical','high')`, `fl.status IN ('new','under_review','confirmed')`])}
       ORDER BY fl.severity = 'critical' DESC, fl.created_at DESC LIMIT ${LIST_LIMIT}`, b2.params);
@@ -81,7 +81,7 @@ async function dailyCrm(db: Db, s: Session, f: AFilters): Promise<ReportResult> 
         { key: 'complaints', label: 'Complaints', kind: 'num', href: '/inbox?from={day}&to={day}&complaints=1' }, { key: 'flags', label: 'AI alerts', kind: 'num' },
       ], rows: days },
       { title: 'Open critical & high alerts', description: 'Alerts on interactions in range still awaiting review or action.', truncated: alerts.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Interaction', href: '/inbox/{interaction_id}?flag={id}' }, { key: 'title', label: 'Alert' }, { key: 'severity', label: 'Severity' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{interaction_id}?flag={id}' }, { key: 'title', label: 'Alert' }, { key: 'severity', label: 'Severity' },
         { key: 'status', label: 'Status' }, { key: 'agent', label: 'Agent' }, { key: 'created_at', label: 'Raised', kind: 'datetime' },
       ], rows: alerts },
     ],
@@ -191,7 +191,7 @@ async function callQuality(db: Db, s: Session, f: AFilters): Promise<ReportResul
   byAgent.forEach((r) => { if (r.evaluated < 5) r.quality = null; });
   const b2 = new SqlBuilder();
   const list = await db.query(
-    `SELECT i.id, i.ref, i.occurred_at, coalesce(a.name, 'Unassigned') AS agent, c.call_status, c.duration_seconds, i.quality_score, i.quality_band,
+    `SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.occurred_at, coalesce(a.name, 'Unassigned') AS agent, c.call_status, c.duration_seconds, i.quality_score, i.quality_band,
             i.review_status, i.sentiment, i.resolution_status,
             (SELECT count(*) FROM quality_flags fl WHERE fl.interaction_id = i.id)::int AS flags
        FROM interactions i JOIN calls c ON c.interaction_id = i.id LEFT JOIN agents a ON a.id = i.agent_id
@@ -208,7 +208,7 @@ async function callQuality(db: Db, s: Session, f: AFilters): Promise<ReportResul
         { key: 'confirmed', label: 'Confirmed issues', kind: 'num' },
       ], rows: byAgent },
       { title: 'Calls audited (lowest score first)', truncated: list.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Call', href: '/inbox/{id}' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'agent', label: 'Agent' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{id}' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'agent', label: 'Agent' },
         { key: 'call_status', label: 'Status' }, { key: 'duration_seconds', label: 'Duration', kind: 'dur' }, { key: 'quality_score', label: 'Score', kind: 'score' },
         { key: 'quality_band', label: 'Band' }, { key: 'review_status', label: 'Review' }, { key: 'flags', label: 'Alerts', kind: 'num' }, { key: 'sentiment', label: 'Sentiment' },
       ], rows: list },
@@ -233,7 +233,7 @@ async function textQuality(db: Db, s: Session, f: AFilters): Promise<ReportResul
   const b2 = new SqlBuilder();
   const sla2 = slaCase(s, b2);
   const list = await db.query(
-    `SELECT i.id, i.ref, i.channel, i.occurred_at, coalesce(a.name, 'Unassigned') AS agent, i.first_response_seconds, ${sla2} * 60 AS sla_seconds,
+    `SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.occurred_at, coalesce(a.name, 'Unassigned') AS agent, i.first_response_seconds, ${sla2} * 60 AS sla_seconds,
             i.quality_score, i.review_status, i.resolution_status, i.sentiment, (SELECT count(*) FROM quality_flags fl WHERE fl.interaction_id = i.id)::int AS flags
        FROM interactions i LEFT JOIN agents a ON a.id = i.agent_id
       ${whereOf([...interactionConds(s, f, b2), `i.channel IN ('chat','whatsapp','email')`])} ORDER BY i.quality_score NULLS LAST, i.occurred_at DESC LIMIT ${LIST_LIMIT}`, b2.params);
@@ -249,7 +249,7 @@ async function textQuality(db: Db, s: Session, f: AFilters): Promise<ReportResul
         { key: 'negative', label: 'Negative sentiment', kind: 'num' },
       ], rows: summary },
       { title: 'Threads audited (lowest score first)', truncated: list.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Thread', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'agent', label: 'Agent' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'agent', label: 'Agent' },
         { key: 'first_response_seconds', label: 'First response', kind: 'dur' }, { key: 'sla_seconds', label: 'SLA', kind: 'dur' }, { key: 'quality_score', label: 'Score', kind: 'score' },
         { key: 'review_status', label: 'Review' }, { key: 'resolution_status', label: 'Status' }, { key: 'flags', label: 'Alerts', kind: 'num' },
       ], rows: list },
@@ -273,7 +273,7 @@ async function refundReplacement(db: Db, s: Session, f: AFilters): Promise<Repor
        LEFT JOIN issue_categories sc ON sc.id = l.subcategory_id ${whereOf(conds)} GROUP BY 1, 2, 3, 4 ORDER BY 2, n DESC`, b.params);
   const b2 = new SqlBuilder();
   const list = await db.query(
-    `SELECT i.id, i.ref, i.occurred_at, cu.name AS customer_name, cu.phone AS customer_phone, coalesce(l.product, i.product) AS product,
+    `SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.occurred_at, cu.name AS customer_name, cu.phone AS customer_phone, coalesce(l.product, i.product) AS product,
             c.name AS category, coalesce(sc.name, c.name) AS subcategory, l.resolution_requested, l.resolution_provided, l.replacement_status,
             i.resolution_status, CASE WHEN l.refund_amount_source IS NOT NULL THEN l.refund_amount END AS amount, l.refund_amount_source AS amount_source,
             coalesce(a.name, 'Unassigned') AS agent
@@ -301,7 +301,7 @@ async function refundReplacement(db: Db, s: Session, f: AFilters): Promise<Repor
         ...(anyValue ? [{ key: 'recorded_value', label: 'Recorded value', kind: 'inr' as ColKind }, { key: 'recorded_n', label: 'Records', kind: 'num' as ColKind }] : []),
       ], rows: summary },
       { title: 'Cases', truncated: list.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Interaction', href: '/inbox/{id}' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'customer', label: 'Customer' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{id}' }, { key: 'occurred_at', label: 'Date', kind: 'datetime' }, { key: 'customer', label: 'Customer' },
         { key: 'product', label: 'Product' }, { key: 'subcategory', label: 'Issue' }, { key: 'resolution_requested', label: 'Requested' },
         { key: 'resolution_provided', label: 'Provided' }, { key: 'replacement_status', label: 'Replacement status' }, { key: 'resolution_status', label: 'Status' },
         ...(anyValue ? [{ key: 'amount', label: 'Recorded amount', kind: 'inr' as ColKind }] : []), { key: 'agent', label: 'Agent' },
@@ -358,7 +358,7 @@ async function slaBreach(db: Db, s: Session, f: AFilters): Promise<ReportResult>
   const resH = b.p(s.org.settings.sla.resolutionHours);
   const rows = await db.query(
     `WITH x AS (
-       SELECT i.id, i.ref, i.channel, i.occurred_at, i.resolution_status, i.first_response_seconds, i.awaiting_agent_since, i.agent_id, i.team_id,
+       SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.occurred_at, i.resolution_status, i.first_response_seconds, i.awaiting_agent_since, i.agent_id, i.team_id,
               coalesce(a.name, 'Unassigned') AS agent, t.name AS team, ${sla} * 60 AS sla_seconds,
               (i.channel <> 'call' AND i.first_response_seconds > ${sla} * 60) AS frt_breach,
               (i.resolution_status <> 'resolved' AND i.occurred_at < now() - make_interval(hours => ${resH}::int)) AS resolution_breach,
@@ -390,7 +390,7 @@ async function slaBreach(db: Db, s: Session, f: AFilters): Promise<ReportResult>
         { key: 'frt', label: 'First response', kind: 'num' }, { key: 'awaiting', label: 'Awaiting reply', kind: 'num' }, { key: 'resolution', label: 'Unresolved past SLA', kind: 'num' },
       ], rows: Array.from(byChannel.values()) },
       { title: 'Breaching interactions', truncated: rows.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Interaction', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'occurred_at', label: 'Opened', kind: 'datetime' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'occurred_at', label: 'Opened', kind: 'datetime' },
         { key: 'agent', label: 'Agent' }, { key: 'team', label: 'Team' }, { key: 'breach', label: 'Breach' }, { key: 'first_response_seconds', label: 'First response', kind: 'dur' },
         { key: 'sla_seconds', label: 'First-response SLA', kind: 'dur' }, { key: 'resolution_status', label: 'Status' }, { key: 'age_seconds', label: 'Age', kind: 'dur' },
       ], rows },
@@ -464,7 +464,7 @@ async function aiCorrections(db: Db, s: Session, f: AFilters): Promise<ReportRes
     `WITH ai AS (SELECT DISTINCT ON (e.interaction_id) e.interaction_id, e.overall_score FROM quality_evaluations e WHERE e.evaluator_type = 'ai' ORDER BY e.interaction_id, e.created_at DESC),
           hu AS (SELECT DISTINCT ON (e.interaction_id) e.interaction_id, e.overall_score, e.created_at, u.name AS reviewer FROM quality_evaluations e
                    LEFT JOIN users u ON u.id = e.evaluator_user_id WHERE e.evaluator_type = 'human' ORDER BY e.interaction_id, e.created_at DESC)
-     SELECT i.id, i.ref, i.channel, coalesce(a.name, 'Unassigned') AS agent, ai.overall_score AS ai_score, hu.overall_score AS human_score,
+     SELECT i.id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, coalesce(a.name, 'Unassigned') AS agent, ai.overall_score AS ai_score, hu.overall_score AS human_score,
             round(hu.overall_score - ai.overall_score, 1)::float AS delta, hu.reviewer, hu.created_at AS reviewed_at
        FROM interactions i JOIN ai ON ai.interaction_id = i.id JOIN hu ON hu.interaction_id = i.id LEFT JOIN agents a ON a.id = i.agent_id
       ${whereOf(interactionConds(s, noSev(f), b2))} ORDER BY abs(hu.overall_score - ai.overall_score) DESC NULLS LAST LIMIT ${LIST_LIMIT}`, b2.params);
@@ -493,7 +493,7 @@ async function aiCorrections(db: Db, s: Session, f: AFilters): Promise<ReportRes
         { key: 'fp_rate', label: 'False-positive rate', kind: 'pct' }, { key: 'pending', label: 'Pending', kind: 'num' }, { key: 'avg_confidence', label: 'Avg AI confidence', kind: 'dec' },
       ], rows: byRule.map((r) => ({ ...r, rule: r.rule ?? r.rule_code })) },
       { title: 'Human vs AI quality scores', description: 'Latest AI evaluation vs latest human evaluation of the same interaction, largest disagreement first.', truncated: pairs.length >= LIST_LIMIT, columns: [
-        { key: 'ref', label: 'Interaction', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'agent', label: 'Agent' },
+        { key: 'ref', label: 'Order ID', href: '/inbox/{id}' }, { key: 'channel', label: 'Channel' }, { key: 'agent', label: 'Agent' },
         { key: 'ai_score', label: 'AI score', kind: 'score' }, { key: 'human_score', label: 'Human score', kind: 'score' }, { key: 'delta', label: 'Human − AI', kind: 'dec' },
         { key: 'reviewer', label: 'Reviewer' }, { key: 'reviewed_at', label: 'Reviewed', kind: 'datetime' },
       ], rows: pairs },

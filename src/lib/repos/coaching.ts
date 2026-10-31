@@ -129,7 +129,7 @@ export async function getFlagForCoaching(db: Db, s: Session, flagId: string) {
   const b = new SqlBuilder();
   return db.one(
     `SELECT fl.id, fl.status, fl.severity, fl.title, fl.rule_code, fl.criterion_code, fl.agent_id, fl.interaction_id, fl.is_demo, fl.excerpt,
-            a.name AS agent, a.user_id AS agent_user_id, i.ref, i.channel, i.occurred_at,
+            a.name AS agent, a.user_id AS agent_user_id, coalesce(i.order_ref, 'No order ID') AS ref, i.channel, i.occurred_at,
             (SELECT ca.id FROM coaching_actions ca WHERE ca.flag_id = fl.id AND ca.status <> 'cancelled' LIMIT 1) AS existing_coaching_id
        FROM quality_flags fl JOIN interactions i ON i.id = fl.interaction_id LEFT JOIN agents a ON a.id = fl.agent_id
       WHERE fl.id = ${b.p(flagId)} AND ${scopeAgents(s, b, 'fl.agent_id')}`, b.params);

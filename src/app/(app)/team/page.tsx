@@ -1,7 +1,7 @@
 import { requirePermission } from '@/lib/auth/session';
 import { withOrg } from '@/lib/db';
 import { sp, type SP } from '@/lib/filters';
-import { getRoleOverrides, listAgentsAdmin, listTeams, listUsers } from '@/lib/repos/team';
+import { getRoleOverrides, listAgentsAdmin, listTeams, listUnmatchedAgentSides, listUsers } from '@/lib/repos/team';
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, PERMISSION_LABELS, type Permission } from '@/lib/auth/rbac';
 import { ROLES, ROLE_LABELS, PLATFORM_LABELS, type Role } from '@/lib/constants';
 import { Badge, Card, CardBody, CardHeader, DemoBadge, Field, Notice, PageHeader, Table, TBody, THead } from '@/components/ui';
@@ -9,7 +9,7 @@ import { ActionForm } from '@/components/analytics/ActionForm';
 import { SubmitButton } from '@/components/analytics/SubmitButton';
 import { Tabs } from '@/components/analytics/Segmented';
 import { fmtDateTime, relTime } from '@/lib/format';
-import { createUser, resetUserMfa, resetUserPassword, saveAgent, rematchAgents, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
+import { createUser, resetUserMfa, resetUserPassword, saveAgent, rematchAgents, assignUnmatched, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
 
 export const metadata = { title: 'Team Management' };
 
@@ -37,7 +37,8 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
   const tab = (['users', 'teams', 'agents', 'permissions'].includes(sp(searchParams, 'tab') ?? '') ? sp(searchParams, 'tab') : 'users') as string;
   const d = await withOrg(s.org.id, async (db) => {
     const [users, teams, agents, overrides] = await Promise.all([listUsers(db), listTeams(db), listAgentsAdmin(db), getRoleOverrides(db)]);
-    return { users, teams, agents, overrides };
+    const unmatched = tab === 'agents' ? await listUnmatchedAgentSides(db) : null;
+    return { users, teams, agents, overrides, unmatched };
   });
   const canSuper = s.user.role === 'super_admin';
   const teamOpts: Opt[] = d.teams.map((t: any) => ({ id: t.id, name: t.name }));
@@ -182,6 +183,46 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
             External IDs map provider users to agent profiles during import, e.g. <code className="rounded bg-white px-1">{'{"myoperator":"10234","limechat":"ag_55","email":"neha@rosierfoods.com"}'}</code>.
             Each provider ID can belong to one agent only. Known providers: {Object.keys(PLATFORM_LABELS).filter((k) => !['manual', 'demo'].includes(k)).join(', ')}.
           </Notice>
+          {d.unmatched && (d.unmatched.groups.length > 0 || d.unmatched.noInfoCalls > 0 || d.unmatched.unassignedChats > 0) && (
+            <Card>
+              <CardHeader title="Calls with no agent yet — who is this?"
+                subtitle="Numbers and names MyOperator sent for answered calls that didn't match any agent. Pick the agent once: past calls are assigned now and future calls automatically." />
+              {d.unmatched.groups.length > 0 && (
+                <Table>
+                  <THead><tr><th className="th">Agent number / details from MyOperator</th><th className="th">Calls</th><th className="th">Incoming</th><th className="th">Outgoing</th><th className="th">Last call</th><th className="th">Assign to</th></tr></THead>
+                  <TBody>
+                    {d.unmatched.groups.map((g) => (
+                      <tr key={`${g.phone}|${g.hint}`}>
+                        <td className="td">
+                          {g.phone ? <p className="font-medium tabular-nums text-ink">+{g.phone}</p> : null}
+                          {g.hint && <p className="max-w-md truncate text-2xs text-ink-muted" title={g.hint}>{g.hint}</p>}
+                        </td>
+                        <td className="td tabular-nums">{g.calls}</td>
+                        <td className="td tabular-nums text-red-700">{g.incoming}</td>
+                        <td className="td tabular-nums text-emerald-700">{g.outgoing}</td>
+                        <td className="td whitespace-nowrap text-xs">{relTime(g.last_at)}</td>
+                        <td className="td">
+                          <ActionForm action={assignUnmatched} className="flex items-center gap-2">
+                            {g.phone && <input type="hidden" name="phone" value={g.phone} />}
+                            {!g.phone && g.hint && <input type="hidden" name="hint" value={g.hint} />}
+                            <select name="agentId" required defaultValue="" className="input h-8 w-44 py-0 text-xs">
+                              <option value="" disabled>Choose agent…</option>
+                              {d.agents.filter((a: any) => a.is_active).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                            <SubmitButton>Assign</SubmitButton>
+                          </ActionForm>
+                        </td>
+                      </tr>
+                    ))}
+                  </TBody>
+                </Table>
+              )}
+              <div className="space-y-1 px-4 py-3 text-xs text-ink-muted">
+                {d.unmatched.noInfoCalls > 0 && <p>{d.unmatched.noInfoCalls} answered call(s) came from MyOperator with no agent details at all — re-run the MyOperator historical import so they are read again with the improved agent detection.</p>}
+                {d.unmatched.unassignedChats > 0 && <p>{d.unmatched.unassignedChats} chat / email conversation(s) have no agent — usually chats the bot closed without handing to a person. Chats handed to an agent are assigned from LimeChat automatically; give each agent here the same email they use in LimeChat.</p>}
+              </div>
+            </Card>
+          )}
           <Card>
             <Table>
               <THead><tr><th className="th">Agent</th><th className="th">Team</th><th className="th">Linked user</th><th className="th">Mobile numbers</th><th className="th">External IDs</th><th className="th">Interactions</th><th className="th"><span className="sr-only">Edit</span></th></tr></THead>

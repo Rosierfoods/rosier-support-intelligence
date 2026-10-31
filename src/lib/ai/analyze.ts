@@ -3,6 +3,7 @@
  * Persistence lives in src/lib/pipeline/analyze.ts. Nothing here logs conversation text or secrets.
  */
 import type { Db } from '@/lib/db';
+import { orderMentioned } from '@/lib/orders/extract';
 import type { Channel, OrgSettings, RubricGroup } from '@/lib/constants';
 import { computeScore, bandFor, weightsFor, type CriterionDef, type CriterionScore } from './scoring';
 import { analysisSchema, analysisJsonSchema, type AnalysisOutput, type SchemaVocab } from './schema';
@@ -201,7 +202,6 @@ export function postProcessAnalysis(raw: unknown, p: {
   const rules = new Set(p.vocab.ruleCodes.filter((r) => !SYSTEM_RULES.has(r)));
   const crits = new Set(p.vocab.criterionCodes), slugs = new Set(p.vocab.policySlugs);
   const dropped = { flags: 0, labels: 0, criteria: 0, evidence: 0 };
-  const convLower = p.conversationText.toLowerCase();
   const ev = (id: string) => resolveEvidence(p.evidence, id);
 
   // labels
@@ -217,7 +217,7 @@ export function postProcessAnalysis(raw: unknown, p: {
       category_code: l.category_code, subcategory_code: sub, is_primary: l.is_primary,
       product: blank(l.product), variant: blank(l.variant), customer_reason: blank(l.customer_reason), agent_reason: blank(l.agent_reason),
       severity: l.severity, resolution_requested: blank(l.resolution_requested), resolution_provided: blank(l.resolution_provided),
-      order_ref: order && convLower.includes(order.toLowerCase()) ? order : null, // only if literally present
+      order_ref: order && orderMentioned(order, p.conversationText) ? order : null, // only if actually said/typed (spoken digits & Hindi digits count)
       probable_root_cause: blank(l.probable_root_cause), confidence: l.confidence,
       evidence: e ? e.excerpt.slice(0, 500) : null, evidence_ref: e ? e.ref : null,
     });
