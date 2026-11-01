@@ -162,6 +162,7 @@ export interface InteractionRow {
   primary_category: string | null; primary_sub: string | null; label_count: number;
   open_flags: number; max_severity: string | null;
   call_status: string | null; duration_seconds: number | null; recording_available: boolean | null; transcript_status: string | null;
+  transcription_skipped: string | null; agent_talk_seconds: number | null;
 }
 
 const SEVERITY_RANK = `CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
@@ -173,7 +174,7 @@ const LIST_SELECT = `
          a.id AS agent_id, a.name AS agent_name, t.name AS team_name,
          lab.primary_category, lab.primary_sub, coalesce(lab.label_count, 0) AS label_count,
          coalesce(fl.open_flags, 0) AS open_flags, fl.max_severity,
-         cl.call_status, cl.duration_seconds, cl.recording_available, tr.status AS transcript_status
+         cl.call_status, cl.duration_seconds, cl.recording_available, tr.status AS transcript_status, cl.transcription_skipped, cl.agent_talk_seconds
     FROM interactions i
     LEFT JOIN customers cu ON cu.id = i.customer_id
     LEFT JOIN agents a ON a.id = i.agent_id
@@ -345,7 +346,7 @@ export async function getInteractionDetail(db: Db, s: Session, id: string) {
 
   const [call, transcript, segments, messages, emails, attachments, analysis, evaluations, criteria, labels, rootCauses, flags, decisions, feedback] = await Promise.all([
     db.one(`SELECT call_status, duration_seconds, ring_seconds, from_number_masked, to_number_masked, recording_available,
-                   (recording_source_ref LIKE 'demo://%') AS demo_recording, recording_mime, language_hint
+                   (recording_source_ref LIKE 'demo://%') AS demo_recording, recording_mime, language_hint, agent_talk_seconds, transcription_skipped
               FROM calls WHERE interaction_id = $1`, [id]),
     db.one(`SELECT id, provider, model, language, status, error, attempt, diarized, translation_en, created_at, updated_at
               FROM call_transcripts WHERE interaction_id = $1 AND is_current ORDER BY created_at DESC LIMIT 1`, [id]),
@@ -414,6 +415,7 @@ export async function getInteractionDetail(db: Db, s: Session, id: string) {
     call: call as null | {
       call_status: string; duration_seconds: number | null; ring_seconds: number | null; from_number_masked: string | null; to_number_masked: string | null;
       recording_available: boolean; demo_recording: boolean; recording_mime: string | null; language_hint: string | null;
+      agent_talk_seconds: number | null; transcription_skipped: string | null;
     },
     transcript: transcript as null | { id: string; provider: string; model: string | null; language: string | null; status: string; error: string | null; attempt: number; diarized: boolean; translation_en: string | null },
     segments,

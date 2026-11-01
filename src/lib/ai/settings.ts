@@ -16,6 +16,7 @@ export function mergeOrgSettings(s: Partial<OrgSettings> | null | undefined): Or
     retention: { ...d.retention, ...(v.retention ?? {}) },
     ai: { ...d.ai, ...(v.ai ?? {}) },
     notifications: { ...d.notifications, ...(v.notifications ?? {}) },
+    transcription: { ...d.transcription, ...(v.transcription ?? {}) },
     scoreBands: Array.isArray(v.scoreBands) && v.scoreBands.length ? v.scoreBands : d.scoreBands,
   };
 }

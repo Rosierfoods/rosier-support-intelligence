@@ -68,6 +68,7 @@ export interface NormalizedInteraction {
     toNumber?: string | null;
     recordingRef?: string | null;      // URL or provider file id; fetched server-side by the transcription job
     languageHint?: string | null;
+    agentTalkSeconds?: number | null;  // seconds an agent actually talked (0 = never reached an agent, null = unknown)
     agentHint?: string | null;         // what the provider said about the agent side (names / numbers) — shown when no agent matched
   };
   messages?: NormalizedMessage[];      // chat / WhatsApp

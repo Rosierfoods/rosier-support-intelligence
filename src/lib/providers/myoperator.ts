@@ -87,6 +87,7 @@ function mapLegacy(d: any): NormalizedInteraction | null {
       fromNumber: direction === 'inbound' ? caller : str(agent?._ct) ?? service,
       toNumber: direction === 'inbound' ? str(agent?._ct) ?? service : caller,
       recordingRef: httpUrl(d._fu) ?? (str(d._fn) ? `myoperator-file:${str(d._fn)}` : null),
+      agentTalkSeconds: agent ? toSeconds(leg?._dr) : legs.length ? 0 : null,
     },
   };
 }
@@ -119,6 +120,7 @@ function mapCompleted(d: any): NormalizedInteraction | null {
       fromNumber: str(d.from),
       toNumber: str(d.to),
       recordingRef: httpUrl(d.recording_url ?? d.recording_link) ?? (str(d.recording_filename) ? `myoperator-file:${str(d.recording_filename)}` : null),
+      agentTalkSeconds: toSeconds(d.talk_time_seconds ?? d.agent_talk_time) ?? null,
     },
   };
 }
@@ -150,8 +152,27 @@ function mapV2(env: any): NormalizedInteraction | null {
       fromNumber: direction === 'inbound' ? str(env.customer_identifier) : str(agent?.contact),
       toNumber: direction === 'inbound' ? str(agent?.contact) : str(env.customer_identifier),
       recordingRef: httpUrl(d.recording_url) ?? (str(d.recording_filename) ? `myoperator-file:${str(d.recording_filename)}` : null),
+      agentTalkSeconds: agent ? toSeconds(answered?.talk_duration ?? answered?.duration) ?? duration : legs.length ? 0 : null,
     },
   };
+}
+
+/**
+ * Seconds an agent actually talked on the call: the agent leg's talk time. 0 when MyOperator lists legs but none reached
+ * an agent (IVR / bot only); null when the payload has no leg detail at all (unknown).
+ */
+export function agentLegTalk(legs: any[], agentLeg: any, customer: string | null): number | null {
+  const talk = (l: any) => toSeconds(l?.duration ?? l?._dr ?? l?.talk_duration ?? l?.talk_time);
+  if (agentLeg) return talk(agentLeg) ?? null;
+  if (!legs.length) return null;
+  const cust = (customer ?? '').replace(/\D/g, '').slice(-10);
+  // A leg to some other number (agent's mobile) without an agent object still counts.
+  const other = legs.filter((l) => {
+    const n = String(l?.contact ?? l?._ct ?? l?.agent_number ?? l?.number ?? l?.received_by_number ?? '').replace(/\D/g, '');
+    return n.length >= 10 && n.slice(-10) !== cust;
+  });
+  const secs = other.map(talk).filter((x): x is number => x !== null);
+  return secs.length ? Math.max(...secs) : 0;
 }
 
 /** First phone-like value on the call legs that is not the customer's number. */
@@ -218,6 +239,7 @@ function mapSearchDoc(d: any): NormalizedInteraction | null {
       toNumber: direction === 'inbound' ? agentPhone ?? null : caller,
       recordingRef: str(d.filename) ? `myoperator-file:${str(d.filename)}` : httpUrl(d.fileurl),
       agentHint: agentHintFrom(d, legs, caller),
+      agentTalkSeconds: agentLegTalk(legs, leg, caller),
     },
   };
 }

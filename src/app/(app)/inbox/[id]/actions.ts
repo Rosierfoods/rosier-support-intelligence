@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { assertPermission, getSession, type Session } from '@/lib/auth/session';
 import type { Permission } from '@/lib/auth/rbac';
 import { withOrg } from '@/lib/db';
+import { enqueueProcessing } from '@/lib/pipeline/jobs';
 import {
   addIssueLabel, addReviewerNote, correctEvaluation, recheckInteractionOrder, removeIssueLabel, retryFailedProcessing, setInteractionOrder, retryInteractionProcessing, ReviewError, setRootCauseStatus,
   updateInteractionStatus,
@@ -41,6 +42,20 @@ export async function retryProcessingAction(_: ActionResult, fd: FormData): Prom
     uuid.parse(id);
     await withOrg(s.org.id, (db) => retryInteractionProcessing(db, s, id));
     return 'Processing re-queued. The worker will pick it up shortly.';
+  });
+}
+
+/** Transcribe a call that was skipped by the "agent calls only" rule. */
+export async function transcribeAnywayAction(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  const id = String(fd.get('interactionId') ?? '');
+  return run(id, async () => {
+    const s = await assertPermission('processing.retry');
+    uuid.parse(id);
+    await withOrg(s.org.id, async (db) => {
+      await db.exec(`UPDATE calls SET transcription_skipped = NULL WHERE interaction_id = $1`, [id]);
+      await enqueueProcessing(db, s.org.id, id, { force: true, reason: 'retranscribe_anyway' });
+    });
+    return 'Queued for transcription.';
   });
 }
 

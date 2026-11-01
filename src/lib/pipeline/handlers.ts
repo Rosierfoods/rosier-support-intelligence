@@ -19,7 +19,7 @@ export async function handleJob(job: Job): Promise<HandlerOutcome> {
   switch (job.type) {
     case 'transcribe': {
       const r = await runTranscribeJob(job);
-      return r.status === 'deferred' ? { status: 'deferred' } : { status: 'done', info: { segments: r.segments } };
+      return r.status === 'deferred' ? { status: 'deferred' } : r.status === 'skipped' ? { status: 'done', info: { skipped: r.reason } } : { status: 'done', info: { segments: r.segments } };
     }
     case 'analyze': {
       const r = await runAnalyzeJob(job);

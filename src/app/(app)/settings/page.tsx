@@ -7,7 +7,12 @@ import { ActionForm } from '@/components/analytics/ActionForm';
 import { SubmitButton } from '@/components/analytics/SubmitButton';
 import { fmtNum } from '@/lib/format';
 import { CheckCircle2, XCircle } from 'lucide-react';
-import { removeDemo, resetDemo, saveNotifications, saveOrganization, saveRetention } from './actions';
+import { removeDemo, resetDemo, saveNotifications, saveOrganization, saveRetention, saveTranscription } from './actions';
+import { Table, TBody, THead, buttonClass } from '@/components/ui';
+import { RangeFilter } from '@/components/filters';
+import { parseRange, withParams, type SP } from '@/lib/filters';
+import { fmtHours, getTalkTime, GST } from '@/lib/repos/talktime';
+import { Download } from 'lucide-react';
 
 export const metadata = { title: 'System Settings' };
 
@@ -28,22 +33,91 @@ const RETENTION: { key: string; label: string; hint: string }[] = [
   { key: 'auditDays', label: 'Audit logs', hint: 'Minimum 90 days.' },
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage(props: { searchParams: Promise<SP> }) {
+  const searchParams = await props.searchParams;
   const s = await requirePermission('settings.manage');
   const canDemo = s.permissions.has('demo.reset');
-  const { org, counts, isDemoUser } = await withOrg(s.org.id, async (db) => {
+  const st = s.org.settings;
+  const range = parseRange(searchParams, '30d');
+  const { org, counts, isDemoUser, talk } = await withOrg(s.org.id, async (db) => {
     const [org, counts, me] = await Promise.all([
       getOrgRow(db), demoCounts(db), db.one<{ is_demo: boolean }>(`SELECT is_demo FROM users WHERE id = $1`, [s.user.id]),
     ]);
-    return { org, counts, isDemoUser: !!me?.is_demo };
+    const talk = await getTalkTime(db, s, range, st.transcription);
+    return { org, counts, isDemoUser: !!me?.is_demo, talk };
   });
-  const st = s.org.settings;
+  const tr = st.transcription;
+  const rate = Number(tr.costPerMinuteInr ?? 0.49);
+  const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
   // Booleans only — values are never sent to the browser.
   const env = ENV_CHECKS.map((e) => ({ ...e, set: !!process.env[e.key] && process.env[e.key] !== '' }));
 
   return (
     <div className="space-y-5">
       <PageHeader title="System Settings" description="Organisation, data retention, notifications, demo data and deployment checks. Changes are audited." />
+
+      <Card id="talk-time">
+        <CardHeader title="Talk time & transcription cost"
+          subtitle={<>Real calls only (demo excluded) · {range.label}{talk.days ? ` · ${talk.days} day${talk.days === 1 ? '' : 's'} of data` : ''}. Only calls where an agent spoke are transcribed; Sarvam bills the whole recording of those calls.</>}
+          actions={<div className="flex flex-wrap items-center gap-2">
+            <RangeFilter />
+            <a href={`/api/export/talk-time${withParams(searchParams, {})}`} className={buttonClass('secondary', 'md')}><Download size={14} /> Download Excel</a>
+          </div>} />
+        <div className="grid gap-px border-b border-line bg-line sm:grid-cols-2 xl:grid-cols-5">
+          {([
+            ['Total agent talk time', fmtHours(talk.totals.talk_seconds), `${fmtNum(talk.totals.answered)} answered of ${fmtNum(talk.totals.calls)} calls`],
+            ['Calls to transcribe', fmtNum(talk.totals.to_transcribe), `${fmtNum(talk.totals.skipped)} answered calls skipped (no agent / too short)`],
+            ['Hours to transcribe', fmtHours(talk.totals.billable_seconds), `${fmtNum(Math.round(talk.totals.minutes))} minutes`],
+            ['Transcription cost', inr(talk.totals.cost_gst), `${inr(talk.totals.cost)} + ${Math.round(GST * 100)}% GST at ₹${rate}/min`],
+            ['Projected per month', talk.days ? inr(talk.monthlyCostGst) : '—', talk.days ? `≈ ${Math.round(talk.monthlyHours)} hours a month at this pace` : 'No calls in this period'],
+          ] as [string, string, string][]).map(([k, v, sub]) => (
+            <div key={k} className="bg-white px-4 py-3">
+              <p className="text-xs font-medium text-ink-muted">{k}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-ink">{v}</p>
+              <p className="mt-0.5 text-2xs text-ink-faint">{sub}</p>
+            </div>
+          ))}
+        </div>
+        {talk.rows.length > 0 && (
+          <Table>
+            <THead><tr>
+              <th className="th">Agent</th><th className="th">Calls</th><th className="th">Answered</th><th className="th">Incoming</th><th className="th">Outgoing</th>
+              <th className="th">Talk time</th><th className="th">To transcribe</th><th className="th">Skipped</th><th className="th">Hours billed</th><th className="th">Cost (incl. GST)</th>
+            </tr></THead>
+            <TBody>
+              {[...talk.rows, talk.totals].map((r) => {
+                const isTotal = r === talk.totals;
+                return (
+                  <tr key={isTotal ? 'total' : r.agent_id ?? 'none'} className={isTotal ? 'bg-brand-50/60 font-semibold' : ''}>
+                    <td className="td">{isTotal ? 'All agents' : r.agent_name ?? <Link href="/team?tab=agents" className="text-ink-muted hover:text-brand">Unassigned</Link>}</td>
+                    <td className="td tabular-nums">{fmtNum(r.calls)}</td>
+                    <td className="td tabular-nums">{fmtNum(r.answered)}</td>
+                    <td className="td tabular-nums text-red-700">{fmtNum(r.incoming)}</td>
+                    <td className="td tabular-nums text-emerald-700">{fmtNum(r.outgoing)}</td>
+                    <td className="td whitespace-nowrap tabular-nums">{fmtHours(r.talk_seconds)}</td>
+                    <td className="td tabular-nums">{fmtNum(r.to_transcribe)}</td>
+                    <td className="td tabular-nums text-ink-muted">{fmtNum(r.skipped)}</td>
+                    <td className="td whitespace-nowrap tabular-nums">{fmtHours(r.billable_seconds)}</td>
+                    <td className="td whitespace-nowrap tabular-nums">{inr((r.billable_seconds / 60) * rate * (1 + GST))}</td>
+                  </tr>
+                );
+              })}
+            </TBody>
+          </Table>
+        )}
+        <CardBody className="border-t border-line">
+          <ActionForm action={saveTranscription} className="grid items-end gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input type="checkbox" name="onlyAgentCalls" defaultChecked={!!tr.onlyAgentCalls} className="mt-0.5 h-4 w-4 accent-[#784900]" />
+              <span><span className="font-medium text-ink">Transcribe only calls where an agent spoke</span>
+                <span className="block text-xs text-ink-muted">Skips calls handled only by the IVR / AI voice, and calls where the agent talked less than the minimum. Skipped calls cost nothing; you can still transcribe one from its page.</span></span>
+            </label>
+            <Field label="Minimum agent talk (seconds)"><input name="minAgentTalkSeconds" type="number" min={0} max={600} defaultValue={tr.minAgentTalkSeconds} className="input w-32" /></Field>
+            <Field label="Sarvam price (₹ / minute)"><input name="costPerMinuteInr" type="number" step="0.01" min={0} max={100} defaultValue={rate} className="input w-32" /></Field>
+            <SubmitButton size="sm">Save</SubmitButton>
+          </ActionForm>
+        </CardBody>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

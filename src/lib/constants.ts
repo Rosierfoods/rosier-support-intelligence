@@ -158,6 +158,8 @@ export const DEFAULT_ORG_SETTINGS = {
   repeatContactWindowDays: 7,
   ai: { autoAnalyze: true, translateToEnglish: true, minConfidenceForAlert: 0.6 },
   notifications: { emailCritical: false },
+  /** Only transcribe calls where an agent actually spoke (skips IVR / bot-only and very short calls). */
+  transcription: { onlyAgentCalls: true, minAgentTalkSeconds: 20, unknownAgentMinSeconds: 90, costPerMinuteInr: 0.49 },
 };
 export type OrgSettings = typeof DEFAULT_ORG_SETTINGS;
 

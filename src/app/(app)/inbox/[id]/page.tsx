@@ -17,7 +17,7 @@ import { ActionForm, SubmitButton } from '@/components/interaction/ActionForm';
 import { AiInsightsCard, FlagsCard, LabelsCard, QualityCard, ReviewCard } from '@/components/interaction/DetailPanels';
 import type { FlagMarker } from '@/components/interaction/types';
 import {
-  addLabelAction, addNoteAction, correctEvaluationAction, recheckOrderAction, removeLabelAction, retryProcessingAction, rootCauseAction, setOrderAction, updateStatusAction,
+  addLabelAction, addNoteAction, correctEvaluationAction, recheckOrderAction, removeLabelAction, retryProcessingAction, rootCauseAction, setOrderAction, transcribeAnywayAction, updateStatusAction,
 } from './actions';
 import { DirectionBadge } from '@/components/interaction/InteractionListView';
 import { RESOLUTION_TYPE_LABELS, type ResolutionType } from '@/lib/orders/tickets';
@@ -238,14 +238,25 @@ export default async function InteractionDetailPage(props: { params: Promise<{ i
             <Card>
               <CardHeader title="Call details" subtitle="Provider metadata (source)" />
               <CardBody>
-                <KeyValue className="sm:grid-cols-3 lg:grid-cols-6" items={[
+                <KeyValue className="sm:grid-cols-4 lg:grid-cols-7" items={[
                   ['Call status', titleCase(d.call.call_status)],
                   ['Duration', fmtDuration(d.call.duration_seconds)],
                   ['Ring time', fmtDuration(d.call.ring_seconds)],
                   ['From', d.call.from_number_masked ?? '—'],
                   ['To', d.call.to_number_masked ?? '—'],
                   ['Recording', d.call.recording_available ? 'Available' : 'Not available'],
+                  ['Agent talk time', d.call.agent_talk_seconds === null ? '—' : d.call.agent_talk_seconds === 0 ? 'No agent joined' : fmtDuration(d.call.agent_talk_seconds)],
                 ]} />
+                {d.call.transcription_skipped && d.call.call_status === 'answered' && !d.transcript && (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-ink-muted">
+                    <span>Not transcribed: <span className="font-medium text-ink">{d.call.transcription_skipped}</span>. Only calls where an agent spoke are sent for transcription (Settings → Transcription).</span>
+                    {perms.retry && d.call.recording_available && (
+                      <ActionForm action={transcribeAnywayAction} hidden={{ interactionId: i.id }}>
+                        <SubmitButton pendingLabel="Queuing…">Transcribe anyway</SubmitButton>
+                      </ActionForm>
+                    )}
+                  </div>
+                )}
               </CardBody>
             </Card>
           )}

@@ -71,6 +71,24 @@ export async function saveNotifications(_: ActionResult, fd: FormData): Promise<
   } catch (e) { return fail(e); }
 }
 
+export async function saveTranscription(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  try {
+    const s = await assertPermission('settings.manage');
+    const v = z.object({
+      onlyAgentCalls: z.literal('on').optional(),
+      minAgentTalkSeconds: z.coerce.number().int().min(0, 'Minimum is 0 seconds.').max(600, 'Maximum is 600 seconds.'),
+      costPerMinuteInr: z.coerce.number().min(0).max(100),
+    }).parse(Object.fromEntries(fd));
+    const patch = { onlyAgentCalls: v.onlyAgentCalls === 'on', minAgentTalkSeconds: v.minAgentTalkSeconds, costPerMinuteInr: v.costPerMinuteInr };
+    await withOrg(s.org.id, async (db) => {
+      await mergeSettingsKey(db, 'transcription', patch);
+      await auditAction(db, s, 'settings.transcription', 'organization', s.org.id, patch);
+    });
+    revalidatePath('/settings');
+    return { ok: true, message: 'Transcription settings saved. They apply to new calls and to calls still waiting for transcription.' };
+  } catch (e) { return fail(e); }
+}
+
 /** Audit after demo regeneration: the acting demo user may have been recreated with a new id. */
 async function auditDemo(db: Db, s: Session, action: string, details: Record<string, unknown>) {
   const still = await db.one(`SELECT 1 FROM users WHERE id = $1`, [s.user.id]);

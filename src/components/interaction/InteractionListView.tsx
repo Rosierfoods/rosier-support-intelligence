@@ -167,6 +167,7 @@ function Row({ r, showCall, variant }: { r: InteractionRow; showCall: boolean; v
           <td className="td whitespace-nowrap tabular-nums">{fmtDuration(r.duration_seconds)}</td>
           <td className="td whitespace-nowrap">
             {r.transcript_status ? <Badge tone={r.transcript_status === 'completed' ? 'good' : r.transcript_status === 'failed' ? 'bad' : 'info'}>{titleCase(r.transcript_status)}</Badge>
+              : r.transcription_skipped && r.call_status === 'answered' ? <span title={`Not transcribed: ${r.transcription_skipped}`}><Badge tone="muted">Skipped</Badge><p className="mt-0.5 max-w-[8rem] truncate text-2xs text-ink-faint">{r.transcription_skipped}</p></span>
               : <span className="text-2xs text-ink-faint">{r.call_status === 'answered' ? (r.recording_available ? 'Not started' : 'No recording') : 'n/a'}</span>}
           </td>
         </>

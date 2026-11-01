@@ -1,4 +1,6 @@
 import type { Db } from '@/lib/db';
+import { loadOrgSettings } from '@/lib/ai/settings';
+import { transcriptionDecision } from './transcribe-gate';
 
 /**
  * Postgres-backed job queue (no Redis needed).
@@ -83,16 +85,23 @@ export async function retryJob(db: Db, id: string) {
 
 /** Queue the right next step for an interaction (transcribe calls with recordings, otherwise analyze). */
 export async function enqueueProcessing(db: Db, orgId: string, interactionId: string, opts: { force?: boolean; reason?: string } = {}) {
-  const row = await db.one<{ channel: string; recording_available: boolean | null; has_transcript: boolean; call_status: string | null }>(
-    `SELECT i.channel, c.recording_available, c.call_status,
+  const row = await db.one<{ channel: string; recording_available: boolean | null; has_transcript: boolean; call_status: string | null;
+      duration_seconds: number | null; agent_talk_seconds: number | null; agent_known: boolean }>(
+    `SELECT i.channel, c.recording_available, c.call_status, c.duration_seconds, c.agent_talk_seconds,
+            (i.agent_id IS NOT NULL OR c.agent_phone IS NOT NULL) AS agent_known,
             EXISTS (SELECT 1 FROM call_transcripts t WHERE t.interaction_id = i.id AND t.is_current AND t.status = 'completed') AS has_transcript
        FROM interactions i LEFT JOIN calls c ON c.interaction_id = i.id WHERE i.id = $1`, [interactionId]);
   if (!row) return null;
   if (row.channel === 'call') {
-    if (row.call_status && row.call_status !== 'answered') {
-      await db.exec(`UPDATE interactions SET processing_status = 'completed' WHERE id = $1`, [interactionId]);
+    // Only calls where an agent actually spoke are transcribed (IVR / bot-only and very short calls are skipped).
+    const settings = await loadOrgSettings(db, orgId);
+    const gate = transcriptionDecision({ callStatus: row.call_status, agentTalkSeconds: row.agent_talk_seconds, durationSeconds: row.duration_seconds, agentKnown: row.agent_known }, settings.transcription);
+    if (!gate.transcribe && !row.has_transcript && !(opts.force === true && opts.reason === 'retranscribe_anyway')) {
+      await db.exec(`UPDATE calls SET transcription_skipped = $2 WHERE interaction_id = $1`, [interactionId, gate.reason]);
+      await db.exec(`UPDATE interactions SET processing_status = 'completed', processing_error = NULL WHERE id = $1`, [interactionId]);
       return null;
     }
+    await db.exec(`UPDATE calls SET transcription_skipped = NULL WHERE interaction_id = $1 AND transcription_skipped IS NOT NULL`, [interactionId]);
     if (!row.has_transcript || opts.force === true && opts.reason === 'retranscribe') {
       if (!row.recording_available) {
         await db.exec(`UPDATE interactions SET processing_status = 'failed', processing_error = 'No authorised recording is available for this call.' WHERE id = $1`, [interactionId]);

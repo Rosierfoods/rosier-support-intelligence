@@ -4,7 +4,8 @@
  *
  * Recording access for providers that need auth (e.g. MyOperator): the integrations layer registers a fetcher with
  *   registerRecordingFetcher('myoperator', async ({ db, orgId, ref, connectionId }) => ({ url, init }))
- * at module load of its provider file (the worker imports src/lib/integrations/sync.ts, which should import providers).
+ * at module load of its provider file (the worker imports src/lib/integrations/sync.ts, which should import { transcriptionDecision } from './transcribe-gate';
+import providers).
  * Without a registered fetcher, http(s) refs are fetched directly; other refs fail with a clear message.
  *
  * Demo recordings (is_demo or demo:// refs) are NEVER sent to external providers.
@@ -13,6 +14,7 @@ import { withOrg, type Db } from '@/lib/db';
 import { deferJob, enqueueProcessing, type Job } from './jobs';
 import { getProviderConnection } from '@/lib/ai/connections';
 import { loadOrgSettings } from '@/lib/ai/settings';
+import { transcriptionDecision } from './transcribe-gate';
 import { PipelineError, ProviderError, errorMessage, isRetryable } from '@/lib/ai/errors';
 import { getStorage, recordingKey } from '@/lib/storage';
 import {
@@ -114,7 +116,7 @@ interface CallRow {
   source_record_id: string | null;
 }
 
-export type TranscribeOutcome = { status: 'completed'; segments: number } | { status: 'deferred' };
+export type TranscribeOutcome = { status: 'completed'; segments: number } | { status: 'deferred' } | { status: 'skipped'; reason: string };
 
 export async function runTranscribeJob(job: Pick<Job, 'id' | 'org_id' | 'interaction_id' | 'payload' | 'attempts'>): Promise<TranscribeOutcome> {
   const orgId = job.org_id;
@@ -129,6 +131,22 @@ export async function runTranscribeJob(job: Pick<Job, 'id' | 'org_id' | 'interac
 }
 
 async function transcribeInner(job: Pick<Job, 'id' | 'payload' | 'attempts'>, orgId: string, interactionId: string): Promise<TranscribeOutcome> {
+  // 0) Only calls where an agent actually spoke (jobs queued before this rule existed are checked here too).
+  if (!job.payload?.sarvam_job_id && job.payload?.reason !== 'retranscribe_anyway') {
+    const skip = await withOrg(orgId, async (db) => {
+      const g = await db.one<{ call_status: string | null; duration_seconds: number | null; agent_talk_seconds: number | null; agent_known: boolean }>(
+        `SELECT c.call_status, c.duration_seconds, c.agent_talk_seconds, (i.agent_id IS NOT NULL OR c.agent_phone IS NOT NULL) AS agent_known
+           FROM interactions i JOIN calls c ON c.interaction_id = i.id WHERE i.id = $1`, [interactionId]);
+      if (!g) return null;
+      const settings = await loadOrgSettings(db, orgId);
+      const d = transcriptionDecision({ callStatus: g.call_status, agentTalkSeconds: g.agent_talk_seconds, durationSeconds: g.duration_seconds, agentKnown: g.agent_known }, settings.transcription);
+      if (d.transcribe) return null;
+      await db.exec(`UPDATE calls SET transcription_skipped = $2 WHERE interaction_id = $1`, [interactionId, d.reason]);
+      await db.exec(`UPDATE interactions SET processing_status = 'completed', processing_error = NULL WHERE id = $1`, [interactionId]);
+      return d.reason;
+    });
+    if (skip) return { status: 'skipped', reason: skip };
+  }
   // 1) load + resolve access (short tx)
   const prep = await withOrg(orgId, async (db) => {
     const c = await db.one<CallRow>(
