@@ -209,6 +209,16 @@ export async function listInteractions(db: Db, s: Session, f: InteractionFilters
   return { total: total?.n ?? 0, rows: rows.map((r) => maskRow(r, canPii)) as InteractionRow[] };
 }
 
+/** Incoming vs outgoing counts for the same filters (direction itself ignored) — for the list tabs. */
+export async function countByDirection(db: Db, s: Session, f: InteractionFilters) {
+  const b = new SqlBuilder();
+  applyInteractionFilters(s, { ...f, direction: undefined }, b);
+  const r = await db.one<{ inbound: number; outbound: number }>(
+    `SELECT count(*) FILTER (WHERE i.direction = 'inbound')::int AS inbound, count(*) FILTER (WHERE i.direction = 'outbound')::int AS outbound
+       FROM interactions i ${b.whereSql()}`, b.params);
+  return { inbound: r?.inbound ?? 0, outbound: r?.outbound ?? 0 };
+}
+
 // ───────────────────────── Export ─────────────────────────
 
 export const EXPORT_MAX_ROWS = 10_000;

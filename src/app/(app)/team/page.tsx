@@ -9,11 +9,13 @@ import { ActionForm } from '@/components/analytics/ActionForm';
 import { SubmitButton } from '@/components/analytics/SubmitButton';
 import { Tabs } from '@/components/analytics/Segmented';
 import { fmtDateTime, relTime } from '@/lib/format';
-import { createUser, resetUserMfa, resetUserPassword, saveAgent, rematchAgents, assignUnmatched, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
+import { createUser, resetUserMfa, resetUserPassword, rematchAgents, assignUnmatched, setAgentActive, saveRolePermissions, saveTeam, setUserActive, unlockUser, updateUser } from './actions';
 
 export const metadata = { title: 'Team Management' };
 
-type Opt = { id: string; name: string };
+import { AgentForm, type Opt } from './AgentForm';
+import Link from 'next/link';
+import { AGENT_HANDLE_LABELS, type AgentHandle } from '@/lib/constants';
 function Select({ name, options, value, placeholder, required }: { name: string; options: Opt[]; value?: string | null; placeholder: string; required?: boolean }) {
   return (
     <select name={name} defaultValue={value ?? ''} required={required} className="input">
@@ -225,27 +227,37 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
           )}
           <Card>
             <Table>
-              <THead><tr><th className="th">Agent</th><th className="th">Team</th><th className="th">Linked user</th><th className="th">Mobile numbers</th><th className="th">External IDs</th><th className="th">Interactions</th><th className="th"><span className="sr-only">Edit</span></th></tr></THead>
+              <THead><tr><th className="th">Agent</th><th className="th">Handles</th><th className="th">Mobile numbers</th><th className="th">Last 30 days (actual)</th><th className="th">Team</th><th className="th">Status</th><th className="th"><span className="sr-only">Edit</span></th></tr></THead>
               <TBody>
-                {d.agents.map((a: any) => (
+                {d.agents.map((a: any) => {
+                  const handles = (a.handles ?? []) as AgentHandle[];
+                  const warn = mismatch(a, handles);
+                  return (
                   <tr key={a.id} className={a.is_active ? '' : 'bg-canvas/60 text-ink-muted'}>
-                    <td className="td"><p className="font-medium text-ink">{a.name}</p><p className="text-2xs text-ink-muted">{a.email ?? ''}</p>
-                      <div className="mt-1 flex gap-1">{!a.is_active && <Badge tone="muted">Inactive</Badge>}{a.is_demo && <DemoBadge />}</div></td>
-                    <td className="td text-sm">{a.team ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="td text-xs">{a.user_email ?? <span className="text-ink-faint">Not linked</span>}</td>
-                    <td className="td text-xs tabular-nums">{(a.phone_numbers ?? []).length ? (a.phone_numbers as string[]).map((p) => <p key={p}>+{p}</p>) : <span className="text-ink-faint">Not set</span>}</td>
-                    <td className="td"><div className="flex max-w-xs flex-wrap gap-1">{Object.entries(a.external_ids ?? {}).map(([k, v]) => <Badge key={k} tone="neutral">{k}: {String(v)}</Badge>)}{!Object.keys(a.external_ids ?? {}).length && <span className="text-2xs text-ink-faint">None</span>}</div></td>
-                    <td className="td tabular-nums">{a.interactions}</td>
-                    <td className="td text-right">
-                      <details className="relative inline-block text-left">
-                        <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-xs font-medium text-brand hover:bg-brand-50">Edit</summary>
-                        <div className="absolute right-0 z-10 mt-1 w-80 rounded-xl border border-line bg-white p-3 shadow-lg">
-                          <AgentForm a={a} teamOpts={teamOpts} userOpts={userOpts} />
-                        </div>
-                      </details>
+                    <td className="td min-w-[11rem]"><Link href={`/team/agents/${a.id}`} className="font-medium text-ink hover:text-brand">{a.name}</Link><p className="text-2xs text-ink-muted">{a.email ?? ''}</p>
+                      {a.work_note && <p className="mt-0.5 max-w-[14rem] truncate text-2xs text-ink-faint" title={a.work_note}>{a.work_note}</p>}
+                      {a.is_demo && <div className="mt-1"><DemoBadge /></div>}</td>
+                    <td className="td min-w-[10rem]">
+                      {handles.length ? <div className="flex flex-wrap gap-1">{handles.map((h) => <Badge key={h} tone={h === 'incoming_calls' ? 'bad' : h === 'outgoing_calls' ? 'good' : 'info'}>{AGENT_HANDLE_LABELS[h]?.label ?? h}</Badge>)}</div>
+                        : <Link href={`/team/agents/${a.id}`} className="text-2xs text-brand hover:underline">Set what they handle</Link>}
                     </td>
+                    <td className="td text-xs tabular-nums">{(a.phone_numbers ?? []).length ? (a.phone_numbers as string[]).map((p) => <p key={p}>+{p}</p>) : <span className="text-ink-faint">Not set</span>}</td>
+                    <td className="td whitespace-nowrap text-xs">
+                      <span className="text-red-700">{a.incoming_30d ?? 0} in</span> · <span className="text-emerald-700">{a.outgoing_30d ?? 0} out</span> · {a.chats_30d ?? 0} chats · {a.emails_30d ?? 0} emails
+                      {warn && <p className="mt-0.5 text-2xs text-amber-700">{warn}</p>}
+                    </td>
+                    <td className="td text-sm">{a.team ?? <span className="text-ink-faint">—</span>}</td>
+                    <td className="td">
+                      <ActionForm action={setAgentActive} className="flex items-center gap-1.5">
+                        <input type="hidden" name="id" value={a.id} /><input type="hidden" name="active" value={a.is_active ? 'false' : 'true'} />
+                        <Badge tone={a.is_active ? 'good' : 'muted'}>{a.is_active ? 'Active' : 'Inactive'}</Badge>
+                        <SubmitButton size="sm" variant="ghost">{a.is_active ? 'Deactivate' : 'Activate'}</SubmitButton>
+                      </ActionForm>
+                    </td>
+                    <td className="td text-right"><Link href={`/team/agents/${a.id}`} className="rounded-md px-2 py-1 text-xs font-medium text-brand hover:bg-brand-50">Edit</Link></td>
                   </tr>
-                ))}
+                  );
+                })}
               </TBody>
             </Table>
           </Card>
@@ -300,20 +312,14 @@ export default async function TeamPage(props: { searchParams: Promise<SP> }) {
   );
 }
 
-function AgentForm({ a, teamOpts, userOpts }: { a?: any; teamOpts: Opt[]; userOpts: Opt[] }) {
-  return (
-    <ActionForm action={saveAgent} resetOnSuccess={!a} className={a ? 'space-y-2' : 'grid gap-3 md:grid-cols-3'}>
-      {a && <input type="hidden" name="id" value={a.id} />}
-      <Field label="Name *"><input name="name" defaultValue={a?.name ?? ''} required maxLength={120} className="input" /></Field>
-      <Field label="Email"><input name="email" type="email" defaultValue={a?.email ?? ''} maxLength={200} className="input" /></Field>
-      <Field label="Team"><Select name="teamId" options={teamOpts} value={a?.team_id} placeholder="No team" /></Field>
-      <Field label="Linked user"><Select name="userId" options={userOpts} value={a?.user_id} placeholder="Not linked" /></Field>
-      <Field label="Mobile number(s)" hint="Comma-separated, e.g. 98123 45678, +91 99999 11111"><input name="phones" defaultValue={a ? ((a.phone_numbers ?? []) as string[]).map((p) => '+' + p).join(', ') : ''} placeholder="+91 98123 45678" className="input" /></Field>
-      <Field label="External IDs (JSON)"><input name="externalIds" defaultValue={a ? JSON.stringify(a.external_ids ?? {}) : ''} placeholder='{"myoperator":"10234"}' className="input font-mono text-xs" /></Field>
-      <Field label="Status">
-        <select name="active" defaultValue={a ? String(a.is_active) : 'true'} className="input"><option value="true">Active</option><option value="false">Inactive</option></select>
-      </Field>
-      <div className={a ? '' : 'md:col-span-3'}><SubmitButton size={a ? 'sm' : 'md'}>{a ? 'Save agent' : 'Create agent'}</SubmitButton></div>
-    </ActionForm>
-  );
+
+/** Assigned work vs what the agent actually did in the last 30 days. */
+function mismatch(a: any, handles: AgentHandle[]): string | null {
+  if (!handles.length) return null;
+  const notes: string[] = [];
+  if ((a.incoming_30d ?? 0) > 0 && !handles.includes('incoming_calls')) notes.push(`${a.incoming_30d} incoming calls though not set`);
+  if ((a.outgoing_30d ?? 0) > 0 && !handles.includes('outgoing_calls')) notes.push(`${a.outgoing_30d} outgoing calls though not set`);
+  if ((a.chats_30d ?? 0) > 0 && !handles.includes('chat_whatsapp')) notes.push(`${a.chats_30d} chats though not set`);
+  if ((a.emails_30d ?? 0) > 0 && !handles.includes('email')) notes.push(`${a.emails_30d} emails though not set`);
+  return notes.length ? notes.join(' · ') : null;
 }

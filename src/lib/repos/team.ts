@@ -25,11 +25,22 @@ export async function listTeams(db: Db) {
        FROM teams t LEFT JOIN users lu ON lu.id = t.lead_user_id ORDER BY t.name`);
 }
 
-export async function listAgentsAdmin(db: Db) {
+export async function listAgentsAdmin(db: Db, onlyId?: string) {
   return db.query(
     `SELECT a.id, a.name, a.email, a.team_id, t.name AS team, a.user_id, u.email AS user_email, a.external_ids, a.phone_numbers, a.is_active, a.is_demo,
-            (SELECT count(*) FROM interactions i WHERE i.agent_id = a.id)::int AS interactions
-       FROM agents a LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN users u ON u.id = a.user_id ORDER BY a.is_active DESC, a.name`);
+            a.handles, a.work_note,
+            (SELECT count(*) FROM interactions i WHERE i.agent_id = a.id)::int AS interactions,
+            act.incoming_30d, act.outgoing_30d, act.chats_30d, act.emails_30d, act.last_at
+       FROM agents a LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN users u ON u.id = a.user_id
+       LEFT JOIN LATERAL (
+         SELECT count(*) FILTER (WHERE i.channel = 'call' AND i.direction = 'inbound')::int AS incoming_30d,
+                count(*) FILTER (WHERE i.channel = 'call' AND i.direction = 'outbound')::int AS outgoing_30d,
+                count(*) FILTER (WHERE i.channel IN ('chat','whatsapp'))::int AS chats_30d,
+                count(*) FILTER (WHERE i.channel = 'email')::int AS emails_30d,
+                max(i.occurred_at) AS last_at
+           FROM interactions i WHERE i.agent_id = a.id AND i.occurred_at > now() - interval '30 days') act ON true
+      ${onlyId ? 'WHERE a.id = $1' : ''}
+      ORDER BY a.is_active DESC, a.name`, onlyId ? [onlyId] : []);
 }
 
 /** Answered calls with no agent, grouped by what MyOperator told us about the agent side (number / names). */

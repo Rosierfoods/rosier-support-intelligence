@@ -5,7 +5,7 @@ import { retryAllFailedAction } from '@/app/(app)/inbox/[id]/actions';
 import type { Session } from '@/lib/auth/session';
 import { withOrg } from '@/lib/db';
 import { parsePage, withParams, type SP } from '@/lib/filters';
-import { getFilterOptions, listInteractions, parseInteractionFilters, type InteractionRow } from '@/lib/repos/interactions';
+import { countByDirection, getFilterOptions, listInteractions, parseInteractionFilters, type InteractionRow } from '@/lib/repos/interactions';
 import {
   CHANNEL_LABELS, PLATFORM_LABELS, PROCESSING_LABELS, PROCESSING_STATUSES, RESOLUTION_STATUSES, REVIEW_STATUSES, SENTIMENTS, SEVERITIES, type Channel,
 } from '@/lib/constants';
@@ -26,9 +26,10 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
 }) {
   const f = parseInteractionFilters(searchParams, { presetChannels: PRESETS[variant] });
   const { page, pageSize, offset } = parsePage(searchParams, 25);
-  const { list, opts } = await withOrg(s.org.id, async (db) => ({
+  const { list, opts, dir } = await withOrg(s.org.id, async (db) => ({
     list: await listInteractions(db, s, f, { pageSize, offset }),
     opts: await getFilterOptions(db, s),
+    dir: await countByDirection(db, s, f),
   }));
   const canExport = s.permissions.has('reports.export');
   const exportQs = withParams(searchParams, { page: undefined, ...(variant !== 'all' && !searchParams.channel ? { preset: variant } : {}) });
@@ -55,6 +56,23 @@ export async function InteractionListView({ s, searchParams, basePath, title, de
             </ActionForm>
           )}
         </>} />
+
+      <nav className="flex flex-wrap gap-2" aria-label="Incoming or outgoing">
+        {([
+          ['', variant === 'call' ? 'All calls' : 'All', dir.inbound + dir.outbound, 'border-line text-ink'],
+          ['inbound', variant === 'call' ? 'Incoming calls' : 'Received (customer started)', dir.inbound, 'border-red-200 text-red-800'],
+          ['outbound', variant === 'call' ? 'Outgoing calls' : 'Sent (we started)', dir.outbound, 'border-emerald-200 text-emerald-800'],
+        ] as [string, string, number, string][]).map(([v, label, n, tone]) => {
+          const active = (f.direction ?? '') === v;
+          return (
+            <Link key={v || 'all'} href={`${basePath}${withParams(searchParams, { direction: v || undefined, page: undefined })}`}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${tone} ${active ? 'bg-white shadow-sm ring-2 ring-brand-500/30' : 'bg-white/60 hover:bg-white'}`}>
+              {v === 'inbound' ? <ArrowDownLeft size={14} /> : v === 'outbound' ? <ArrowUpRight size={14} /> : null}{label}
+              <span className="rounded bg-stone-100 px-1.5 text-xs tabular-nums text-ink-muted">{n.toLocaleString('en-IN')}</span>
+            </Link>
+          );
+        })}
+      </nav>
 
       <Card className="p-3">
         <div className="flex flex-wrap items-center gap-2">

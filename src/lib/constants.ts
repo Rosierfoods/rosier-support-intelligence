@@ -178,3 +178,13 @@ export const KB_DEFAULT_ARTICLES: { slug: string; title: string; category: strin
   { slug: 'response-templates', title: 'Approved response templates', category: 'Templates' },
   { slug: 'privacy-data-handling', title: 'Privacy and customer-data handling', category: 'Policy' },
 ];
+
+/** What an agent handles — set per agent in Team → Agents. Platform shows where that work happens. */
+export const AGENT_HANDLES = ['incoming_calls', 'outgoing_calls', 'chat_whatsapp', 'email'] as const;
+export type AgentHandle = (typeof AGENT_HANDLES)[number];
+export const AGENT_HANDLE_LABELS: Record<AgentHandle, { label: string; platform: string }> = {
+  incoming_calls: { label: 'Incoming calls', platform: 'MyOperator' },
+  outgoing_calls: { label: 'Outgoing calls', platform: 'MyOperator' },
+  chat_whatsapp: { label: 'Chat & WhatsApp', platform: 'LimeChat' },
+  email: { label: 'Email', platform: 'LimeChat' },
+};

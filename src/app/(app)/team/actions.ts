@@ -7,7 +7,7 @@ import { withOrg, type Db } from '@/lib/db';
 import { normalisePhone, randomToken } from '@/lib/crypto';
 import { rematchAgentsByPhone } from '@/lib/ingestion/ingest';
 import { PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, type Permission } from '@/lib/auth/rbac';
-import { ROLES, type Role } from '@/lib/constants';
+import { AGENT_HANDLES, ROLES, type Role } from '@/lib/constants';
 import type { ActionResult } from '@/components/analytics/ActionForm';
 
 const uuid = z.string().uuid();
@@ -232,12 +232,14 @@ const agentSchema = z.object({
     return out;
   }),
   active: z.enum(['true', 'false']).optional().default('true'),
+  handles: z.array(z.enum(AGENT_HANDLES)).default([]),
+  workNote: z.string().trim().max(500).optional().transform((v) => v || null),
 });
 
 export async function saveAgent(_: ActionResult, fd: FormData): Promise<ActionResult> {
   try {
     const s = await guard();
-    const v = agentSchema.parse(Object.fromEntries(fd));
+    const v = agentSchema.parse({ ...Object.fromEntries(fd), handles: fd.getAll('handles').map(String) });
     await withOrg(s.org.id, async (db) => {
       // External IDs must map to exactly one agent per provider, or imports would be ambiguous.
       for (const [provider, ext] of Object.entries(v.externalIds)) {
@@ -251,12 +253,12 @@ export async function saveAgent(_: ActionResult, fd: FormData): Promise<ActionRe
       }
       let id = v.id;
       if (id) {
-        const n = await db.exec(`UPDATE agents SET name = $2, email = $3, team_id = $4, external_ids = $5, is_active = $6, phone_numbers = $7 WHERE id = $1`,
-          [id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones]);
+        const n = await db.exec(`UPDATE agents SET name = $2, email = $3, team_id = $4, external_ids = $5, is_active = $6, phone_numbers = $7, handles = $8, work_note = $9 WHERE id = $1`,
+          [id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones, v.handles, v.workNote]);
         if (!n) throw new Error('Agent not found.');
       } else {
-        const a = await db.one<{ id: string }>(`INSERT INTO agents (org_id, name, email, team_id, external_ids, is_active, phone_numbers) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-          [s.org.id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones]);
+        const a = await db.one<{ id: string }>(`INSERT INTO agents (org_id, name, email, team_id, external_ids, is_active, phone_numbers, handles, work_note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [s.org.id, v.name, v.email, v.teamId, JSON.stringify(v.externalIds), v.active === 'true', v.phones, v.handles, v.workNote]);
         id = a!.id;
       }
       const cur = await db.one<{ user_id: string | null }>(`SELECT user_id FROM agents WHERE id = $1`, [id]);
@@ -266,12 +268,28 @@ export async function saveAgent(_: ActionResult, fd: FormData): Promise<ActionRe
         if (v.userId) await linkUserAgent(db, v.userId, id);
       }
       await auditAction(db, s, v.id ? 'agent.update' : 'agent.create', 'agent', id, {
-        name: v.name, team_id: v.teamId, user_id: v.userId, providers: Object.keys(v.externalIds), active: v.active === 'true', phones: v.phones.length,
+        name: v.name, team_id: v.teamId, user_id: v.userId, providers: Object.keys(v.externalIds), active: v.active === 'true', phones: v.phones.length, handles: v.handles,
       });
       await rematchAgentsByPhone(db);
     });
     revalidatePath('/team');
+    if (v.id) revalidatePath(`/team/agents/${v.id}`);
     return { ok: true, message: v.id ? 'Agent saved.' : 'Agent created.' };
+  } catch (e) { return fail(e); }
+}
+
+/** Quick Active / Inactive switch from the agents table. */
+export async function setAgentActive(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  try {
+    const s = await guard();
+    const v = z.object({ id: z.string().uuid(), active: z.enum(['true', 'false']) }).parse(Object.fromEntries(fd));
+    await withOrg(s.org.id, async (db) => {
+      const n = await db.exec(`UPDATE agents SET is_active = $2 WHERE id = $1`, [v.id, v.active === 'true']);
+      if (!n) throw new Error('Agent not found.');
+      await auditAction(db, s, 'agent.update', 'agent', v.id, { active: v.active === 'true' });
+    });
+    revalidatePath('/team');
+    return { ok: true, message: v.active === 'true' ? 'Agent activated.' : 'Agent marked inactive.' };
   } catch (e) { return fail(e); }
 }
 
